@@ -1,0 +1,12 @@
+GameInfo
+{
+	AddEventHandlers = "TNavMeshHandler"
+}
+DoomEdNums
+{
+	11111 = PathFindingDoom
+}
+SpawnNums
+{
+	11111 = PathFindingDoom
+}
