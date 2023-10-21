@@ -1,0 +1,25 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 16
+VisualStudioVersion = 16.0.30406.217
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ZDoomNavmesh", "ZDoomNavmesh\ZDoomNavmesh.csproj", "{B7E60EAC-BBBA-4119-8F85-B643C61C1FAC}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{B7E60EAC-BBBA-4119-8F85-B643C61C1FAC}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B7E60EAC-BBBA-4119-8F85-B643C61C1FAC}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B7E60EAC-BBBA-4119-8F85-B643C61C1FAC}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B7E60EAC-BBBA-4119-8F85-B643C61C1FAC}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {63E571D7-2D25-4D21-93DB-9622E625D301}
+	EndGlobalSection
+EndGlobal
