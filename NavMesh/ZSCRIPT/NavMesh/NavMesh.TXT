@@ -313,7 +313,7 @@ class TNavMesh : TCustomNavMesh
 		return false;
 	}
 	// Update an existing path.
-	bool UpdateRoute(int LastStopPolygon, int CurrentStopPolygon, in out Array<TNavRoute> Route)
+	bool UpdateRoute(int LastStopPolygon, int CurrentStopPolygon, in out Array<TNavRoute> Route, in out int RouteStep)
 	{
 		// Trivial case.
 		if (LastStopPolygon == CurrentStopPolygon)
@@ -332,6 +332,7 @@ class TNavMesh : TCustomNavMesh
 				NavRoute.Position.Y = (NavLines[LineIndex].Y1 + NavLines[LineIndex].Y2) / 2;
 				NavRoute.Position.Z = NavPolygons[CurrentStopPolygon].HeightFloor;
 				Route.Insert(0, NavRoute);
+				RouteStep = RouteStep + 1;
 				return true;
 			}
 			I++;
@@ -492,7 +493,7 @@ class TCustomNavMeshActor : KAI_Actor abstract
 				RouteStep--;
 			else
 			{
-				// A new route is needed.
+				// Destination reached, the Route is no longer necessary.
 				RouteEnd();
 				return;
 			}
@@ -508,10 +509,9 @@ class TCustomNavMeshActor : KAI_Actor abstract
 		if (CurrentTargetPolygon != RouteLastTargetPolygon)
 		{
 			// Checks if the target has moved slightly.
-			if (NavMesh.UpdateRoute(RouteLastTargetPolygon, CurrentTargetPolygon, Route))
+			if (NavMesh.UpdateRoute(RouteLastTargetPolygon, CurrentTargetPolygon, Route, RouteStep))
 			{
 				RouteLastTargetPolygon = CurrentTargetPolygon;
-				RouteStep++;
 			}
 			else
 			{
