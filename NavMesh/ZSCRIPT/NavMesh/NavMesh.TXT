@@ -440,6 +440,11 @@ class TNavMeshHandler : EventHandler
 	{
 		NavMesh = TNavMesh.Create(Level.MapName);
 	}
+    override void WorldUnloaded(WorldEvent E)
+	{
+		NavMesh.Destroy();
+		NavMesh = null;
+	}
 }
 
 // -----------------------------------------------------------------------------
@@ -548,18 +553,21 @@ class TCustomNavMeshActor : KAI_Actor abstract
 			}
 			else
 			{
-				if (RouteActive)
-					RouteChase(Target.Pos);
-				else
-				{
-					if (RouteSearch(Target.Pos))
-					{
-						RouteBegin();
+				if (NavMesh)
+					if (RouteActive)
 						RouteChase(Target.Pos);
-					}
 					else
-						KAI_MoveTowards(Target.Pos);
-				}
+					{
+						if (RouteSearch(Target.Pos))
+						{
+							RouteBegin();
+							RouteChase(Target.Pos);
+						}
+						else
+							KAI_MoveTowards(Target.Pos);
+					}
+				else
+					KAI_MoveTowards(Target.Pos);
 			}
 		}
 	}
