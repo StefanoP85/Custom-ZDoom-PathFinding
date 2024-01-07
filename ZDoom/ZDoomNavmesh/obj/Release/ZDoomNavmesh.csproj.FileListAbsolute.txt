@@ -10,4 +10,3 @@ D:\OneDrive\Projects\C# Demos\ZDoom\ZDoomNavmesh\obj\Release\ZDoomNavmesh.csproj
 D:\OneDrive\Projects\C# Demos\ZDoom\ZDoomNavmesh\obj\Release\ZDoomNavmesh.csproj.CoreCompileInputs.cache
 D:\OneDrive\Projects\C# Demos\ZDoom\ZDoomNavmesh\obj\Release\ZDoomNavmesh.exe
 D:\OneDrive\Projects\C# Demos\ZDoom\ZDoomNavmesh\obj\Release\ZDoomNavmesh.pdb
-D:\OneDrive\Projects\C# Demos\ZDoom\ZDoomNavmesh\obj\Release\ZDoomNavmesh.csprojAssemblyReference.cache
