@@ -1167,7 +1167,7 @@ ExitWhile:
         {
             if (Polygon.Lines.Count < 3)
                 return false;
-            TLine ExtendedLine = new TLine(Point, new TPoint(65536, Point.Y));
+            /*TLine ExtendedLine = new TLine(Point, new TPoint(65536, Point.Y));
             int Count = 0;
             foreach (TLine Line in Polygon.Lines)
             {
@@ -1177,7 +1177,23 @@ ExitWhile:
                     else
                         Count++;
             }
-            return (Count & 1) > 0;
+            return (Count & 1) > 0;*/
+            bool Result = false;
+            TPoint P1 = Polygon.Lines[0].A;
+            foreach (TLine Line in Polygon.Lines)
+            {
+                TPoint P2 = Line.B;
+                if (Point.Y > Math.Min(P1.Y, P2.Y))
+                    if (Point.Y <= Math.Max(P1.Y, P2.Y))
+                        if (Point.X <= Math.Max(P1.X, P2.X))
+                        {
+                            double IntersectionX = (Point.Y - P1.Y) * (P2.X - P1.X) / (P2.Y - P1.Y) + P1.X;
+                            if ((P1.X == P2.X) || (Point.X <= IntersectionX))
+                                Result = !Result;
+                        }
+                P1 = P2;
+            }
+            return Result;
         }
         internal static bool PolygonInsidePolygon(TPolygon OuterPolygon, TPolygon TestPoligon)
         {
@@ -1797,6 +1813,9 @@ ExitWhile:
         /// </summary>
         internal void ProcessMapData()
         {
+            List<TPolygonGroup> PolygonGroups;
+            List<TPPLPolygon> InputPolygons = new List<TPPLPolygon>();
+            List<TPPLPolygon> OutputPolygons = new List<TPPLPolygon>();
             foreach (TMapSector MapSector in MapDefinition.MapSector)
                 if (!MapSector.Ignored)
                 {
@@ -1823,27 +1842,11 @@ ExitWhile:
                             SectorPolygon.AddLine(Line);
                         }
                     // Split the map sectors into a list of TPolygonGroup.
-                    List<TPolygonGroup> PolygonGroups = GetPolygonGroups(SectorPolygon);
+                    PolygonGroups = GetPolygonGroups(SectorPolygon);
                     if (!(PolygonGroups is null))
                     {
                         foreach (TPolygonGroup PolygonGroup in PolygonGroups)
                         {
-                            List<TPPLPolygon> InputPolygons = new List<TPPLPolygon>();
-                            // Outer polygon edges.
-                            TPPLPolygon Polygon = new TPPLPolygon();
-                            foreach (TLine Line in PolygonGroup.Polygon.Lines)
-                                Polygon.AddPoint(new TPPLPoint(Line.A.X, Line.A.Y));
-                            Polygon.Hole = false;
-                            InputPolygons.Add(Polygon);
-                            // Inner holes polygon edges.
-                            foreach (TPolygon Sector in PolygonGroup.Holes)
-                            {
-                                TPPLPolygon Hole = new TPPLPolygon();
-                                foreach (TLine Line in Sector.Lines)
-                                    Hole.AddPoint(new TPPLPoint(Line.A.X, Line.A.Y));
-                                Hole.Hole = true;
-                                InputPolygons.Add(Hole);
-                            }
                             // Search for teleporter destinations.
                             if (MapDefinition.MapNamespace == TMapNamespace.MapNamespaceDoom)
                             {
@@ -1888,23 +1891,42 @@ ExitWhile:
                                     }
                                 }
                             }
-                            // Perform the polygon partitioning into convex subpolygons.
-                            List<TPPLPolygon> OutputPolygons = new List<TPPLPolygon>();
-                            //TPPLPartition.Triangulate_EC(InputPolygons, OutputPolygons);
-                            TPPLPartition.ConvexPartition_HM(InputPolygons, OutputPolygons);
-                            // Search for 3D sectors.
-                            int Sector3D = MapSectors3D.FindIndex((MapSector3D) => MapSector3D.SectorTag == MapSector.ID);
-                            if (Sector3D >= 0)
+                            InputPolygons.Clear();
+                            // Outer polygon edges.
+                            TPPLPolygon Polygon = new TPPLPolygon();
+                            foreach (TLine Line in PolygonGroup.Polygon.Lines)
+                                Polygon.AddPoint(new TPPLPoint(Line.A.X, Line.A.Y));
+                            Polygon.Hole = false;
+                            InputPolygons.Add(Polygon);
+                            // Inner holes polygon edges.
+                            foreach (TPolygon Sector in PolygonGroup.Holes)
                             {
-                                int MiddleFloor = MapSectors3D[Sector3D].ControlSector.HeightFloor;
-                                int MiddleCeiling = MapSectors3D[Sector3D].ControlSector.HeightCeiling;
-                                if (MiddleFloor > MapSector.HeightFloor)
-                                    ProcessPolygons(OutputPolygons, MapSector.HeightFloor, MiddleFloor, MapSector.Index, 0);
-                                if (MiddleCeiling < MapSector.HeightCeiling)
-                                    ProcessPolygons(OutputPolygons, MiddleCeiling, MapSector.HeightCeiling, MapSector.Index, MapSectors3D[Sector3D].Swimmable ? 0x0003 : 0x0001);
+                                TPPLPolygon Hole = new TPPLPolygon();
+                                foreach (TLine Line in Sector.Lines)
+                                    Hole.AddPoint(new TPPLPoint(Line.A.X, Line.A.Y));
+                                Hole.Hole = true;
+                                InputPolygons.Add(Hole);
                             }
-                            else
-                                ProcessPolygons(OutputPolygons, MapSector.HeightFloor, MapSector.HeightCeiling, MapSector.Index);
+                            // Perform the polygon partitioning into convex subpolygons.
+                            OutputPolygons.Clear();
+                            if (!TPPLPartition.ConvexPartition_HM(InputPolygons, OutputPolygons))
+                                TPPLPartition.Triangulate_EC(Polygon, OutputPolygons);
+                            if (OutputPolygons.Count > 0)
+                            {
+                                // Search for 3D sectors.
+                                int Sector3D = MapSectors3D.FindIndex((MapSector3D) => MapSector3D.SectorTag == MapSector.ID);
+                                if (Sector3D >= 0)
+                                {
+                                    int MiddleFloor = MapSectors3D[Sector3D].ControlSector.HeightFloor;
+                                    int MiddleCeiling = MapSectors3D[Sector3D].ControlSector.HeightCeiling;
+                                    if (MiddleFloor > MapSector.HeightFloor)
+                                        ProcessPolygons(OutputPolygons, MapSector.HeightFloor, MiddleFloor, MapSector.Index, 0);
+                                    if (MiddleCeiling < MapSector.HeightCeiling)
+                                        ProcessPolygons(OutputPolygons, MiddleCeiling, MapSector.HeightCeiling, MapSector.Index, MapSectors3D[Sector3D].Swimmable ? 0x0003 : 0x0001);
+                                }
+                                else
+                                    ProcessPolygons(OutputPolygons, MapSector.HeightFloor, MapSector.HeightCeiling, MapSector.Index);
+                            }
                         }
                     }
                 }
