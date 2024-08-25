@@ -66,6 +66,7 @@
             PictureBoxMap.TabIndex = 1;
             PictureBoxMap.TabStop = false;
             PictureBoxMap.Paint += PictureBoxMap_Paint;
+            PictureBoxMap.MouseMove += PictureBoxMap_MouseMove;
             // 
             // FlowLayoutPanelControls
             // 
@@ -91,7 +92,6 @@
             // 
             // TextBoxZoom
             // 
-            TextBoxZoom.AutoSize = false;
             TextBoxZoom.Enabled = false;
             TextBoxZoom.Location = new System.Drawing.Point(91, 3);
             TextBoxZoom.Name = "TextBoxZoom";

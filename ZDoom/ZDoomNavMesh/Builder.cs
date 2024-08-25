@@ -6,7 +6,6 @@
 namespace NavmeshBuilder;
 using System;
 using System.Collections.Generic;
-using System.DirectoryServices.ActiveDirectory;
 using System.Linq;
 using System.Text;
 
@@ -168,6 +167,10 @@ public class TPolygon : Object
     /// </summary>
     public int MapSector;
     /// <summary>
+    /// Variable <c>BlockingLines</c> is the list of blocking lines, that are used by the cover map.
+    /// </summary>
+    public List<Int32> BlockingLines;
+    /// <summary>
     /// Constructor <c>TPolygon</c> is the index of the map SECTOR.
     /// </summary>
     public TPolygon() : base()
@@ -177,6 +180,7 @@ public class TPolygon : Object
         LineCount = 0;
         Flags = 0;
         MapSector = -1;
+        BlockingLines = new List<Int32>();
     }
     /// <summary>
     /// Function <c>AddLine</c> adds a line of the polygon.
@@ -1024,6 +1028,19 @@ internal class TMapTeleporter : Object
     }
 }
 /// <summary>
+/// Class <c>TLineIntercept</c> stores the intercepts of lines, used by the cover map scan.
+/// </summary>
+internal class TLineIntercept : Object
+{
+    internal int LineIndex;
+    internal double Distance;
+    internal TLineIntercept() : base()
+    {
+        LineIndex = 0;
+        Distance = 0;
+    }
+}
+/// <summary>
 /// Class <c>TNavMeshSettings</c> is used to configure the navigation mesh generation.
 /// </summary>
 public class TNavMeshSettings : Object
@@ -1047,10 +1064,6 @@ public class TNavMeshSettings : Object
 /// </summary>
 public class TNavMesh : Object
 {
-    /// <summary>
-    /// Variable <c>MapGridLines</c> stores the map grid of LINEDEF, for collision detection.
-    /// </summary>
-    internal List<Int32>[,] MapGridLines;
     /// <summary>
     /// Constant <c>GridOffset</c> is the offset added to VERTEX coordinates in the map grid.
     /// </summary>
@@ -1125,7 +1138,6 @@ public class TNavMesh : Object
         MapDoors = new List<TMapDoor>();
         MapSectors3D = new List<TMapSector3D>();
         MapTeleporters = new List<TMapTeleporter>();
-        MapGridLines = new List<Int32>[256, 256];
         Messages = new List<String>();
     }
     internal static TOrientation CalcDirection(TPoint A, TPoint B, TPoint C)
@@ -1203,69 +1215,6 @@ public class TNavMesh : Object
             return false;
         else
             return (PointInsidePolygon(OuterPolygon, TestPoligon.Lines[0].A)) && (PointInsidePolygon(OuterPolygon, TestPoligon.Lines[0].B));
-    }
-    /// <summary>
-    /// Function <c>CalcMapGrid</c> builds the map grids of LINEDEF.
-    /// </summary>
-    /// <param name="MapDefinition"><c>MapDefinition</c> stores the map definition, which we are processing.</param>
-    /// <remarks>It sets the MapGridLines variable of the object.</remarks>
-    internal void CalcMapGrid(TMapDefinition MapDefinition)
-    {
-        for (int Y = 0; Y < 256; Y++)
-            for (int X = 0; X < 256; X++)
-                MapGridLines[Y, X] = new List<Int32>();
-        foreach (TMapLinedef MapLinedef in MapDefinition.MapLinedef)
-        {
-            int MaxX = Int32.MinValue;
-            int MaxY = Int32.MinValue;
-            int MinX = Int32.MaxValue;
-            int MinY = Int32.MaxValue;
-            if (MapDefinition.MapVertex[MapLinedef.V1].X > MaxX)
-                MaxX = MapDefinition.MapVertex[MapLinedef.V1].X;
-            if (MapDefinition.MapVertex[MapLinedef.V1].Y > MaxY)
-                MaxY = MapDefinition.MapVertex[MapLinedef.V1].Y;
-            if (MapDefinition.MapVertex[MapLinedef.V2].X > MaxX)
-                MaxX = MapDefinition.MapVertex[MapLinedef.V2].X;
-            if (MapDefinition.MapVertex[MapLinedef.V2].Y > MaxY)
-                MaxY = MapDefinition.MapVertex[MapLinedef.V2].Y;
-            if (MapDefinition.MapVertex[MapLinedef.V1].X < MinX)
-                MinX = MapDefinition.MapVertex[MapLinedef.V1].X;
-            if (MapDefinition.MapVertex[MapLinedef.V1].Y < MinY)
-                MinY = MapDefinition.MapVertex[MapLinedef.V1].Y;
-            if (MapDefinition.MapVertex[MapLinedef.V2].X < MinX)
-                MinX = MapDefinition.MapVertex[MapLinedef.V2].X;
-            if (MapDefinition.MapVertex[MapLinedef.V2].Y < MinY)
-                MinY = MapDefinition.MapVertex[MapLinedef.V2].Y;
-            MinX = (MinX + GridOffset) >> 8;
-            MinY = (MinY + GridOffset) >> 8;
-            MaxX = (MaxX + GridOffset) >> 8;
-            MaxY = (MaxY + GridOffset) >> 8;
-            for (int Y = MinY; Y <= MaxY; Y++)
-                for (int X = MinX; X <= MaxX; X++)
-                    MapGridLines[Y, X].Add(MapLinedef.Index);
-        }
-    }
-    /// <summary>
-    /// Function <c>GetMapGridIntersect</c> gets the LINEDEF lines, that intersect a square centered on a point,
-    /// using the map grid data.
-    /// </summary>
-    /// <param name="CenterPoint"><c>CenterPoint</c> is the center of the square.</param>
-    /// <param name="Radius"><c>Radius</c> is the radius of the square.</param>
-    /// <returns>The list of LINEDEF indexes.</returns>
-    internal List<Int32>? GetMapGridIntersect(TPoint CenterPoint, int Radius)
-    {
-        List<Int32> Result = new List<Int32>();
-        int X1 = (CenterPoint.X - Radius + GridOffset) >> 8;
-        int Y1 = (CenterPoint.Y - Radius + GridOffset) >> 8;
-        int X2 = (CenterPoint.X + Radius + GridOffset) >> 8;
-        int Y2 = (CenterPoint.Y + Radius + GridOffset) >> 8;
-        for (int X = X1; X <= X2; X++)
-            for (int Y = Y1; Y <= Y2; Y++)
-                Result.AddRange(MapGridLines[Y, X]);
-        if (Result.Count > 0)
-            return Result;
-        else
-            return null;
     }
     /// <summary>
     /// Function <c>CheckLinedefCrushing</c> checks if a linedef has crushing damage effects.
@@ -1608,6 +1557,15 @@ public class TNavMesh : Object
         // Search for portals.
         foreach (TLine Line in Polygon.Lines)
         {
+            int MapLinedefIndex = MapDefinition.MapLinedef.FindIndex((Linedef) =>
+                {
+                    TMapVertex V1 = MapDefinition.MapVertex[Linedef.V1];
+                    TMapVertex V2 = MapDefinition.MapVertex[Linedef.V2];
+                    return ((Line.A.X == V1.X) && (Line.A.Y == V1.Y) && (Line.B.X == V2.X) && (Line.B.Y == V2.Y))
+                        || ((Line.A.X == V2.X) && (Line.A.Y == V2.Y) && (Line.B.X == V1.X) && (Line.B.Y == V1.Y));
+                }
+            );
+            Line.MapLinedef = MapLinedefIndex;
             // Check for portals.
             int CurrentPolygonIndex = 0;
             int CurrentPolygonLine = 0;
@@ -1616,15 +1574,7 @@ public class TNavMesh : Object
                 if (((Line.A == FLines[I].A) && (Line.B == FLines[I].B)) || ((Line.A == FLines[I].B) && (Line.B == FLines[I].A)))
                 {
                     bool LineIsPortal = true;
-                    int MapLinedefIndex = MapDefinition.MapLinedef.FindIndex((Linedef) =>
-                    {
-                        TMapVertex V1 = MapDefinition.MapVertex[Linedef.V1];
-                        TMapVertex V2 = MapDefinition.MapVertex[Linedef.V2];
-                        return ((Line.A.X == V1.X) && (Line.A.Y == V1.Y) && (Line.B.X == V2.X) && (Line.B.Y == V2.Y))
-                            || ((Line.A.X == V2.X) && (Line.A.Y == V2.Y) && (Line.B.X == V1.X) && (Line.B.Y == V1.Y));
-                    }
-                    );
-                    // If the line is generated from the splitting of the SECTOR, then it's a portal, else check further.
+                    // If the line is generated from the splitting of the SECTOR, then check for 3D floors, else check further.
                     if (MapLinedefIndex >= 0)
                     {
                         // Check if the LINEDEF blocks monsters.
@@ -1640,13 +1590,22 @@ public class TNavMesh : Object
                         if (VerticalSpace < NavMeshSettings.ActorHeight)
                             LineIsPortal = false;
                     }
+                    else 
+                    {
+                        // Check if the two floor heights are too different.
+                        int HeightFloorDifference = Math.Abs(Polygon.HeightFloor - FPolygons[CurrentPolygonIndex].HeightFloor);
+                        if (HeightFloorDifference > 24)
+                            LineIsPortal = false;
+                        // Check if there is enough vertical space between the two connecting sectors.
+                        int VerticalSpace = Math.Min(Polygon.HeightCeiling, FPolygons[CurrentPolygonIndex].HeightCeiling) - Math.Max(Polygon.HeightFloor, FPolygons[CurrentPolygonIndex].HeightFloor);
+                        if (VerticalSpace < NavMeshSettings.ActorHeight)
+                            LineIsPortal = false;
+                    }
                     if (LineIsPortal)
                     {
                         Line.Portal = CurrentPolygonIndex;
                         FLines[I].Portal = FPolygons.Count;
                     }
-                    Line.MapLinedef = MapLinedefIndex;
-                    FLines[I].MapLinedef = MapLinedefIndex;
                 }
                 CurrentPolygonLine++;
                 if (CurrentPolygonLine == FPolygons[CurrentPolygonIndex].LineCount)
@@ -1938,15 +1897,285 @@ public class TNavMesh : Object
             }
     }
     /// <summary>
+    /// Function <c>ProcessCoverZones</c> calculates the cover zones of the navmesh.
+    /// </summary>
+    /// <param name="NavMeshSettings"><c>NavMeshSettings</c> stores the settings of the process.</param>
+    /// <param name="MapDefinition"><c>MapDefinition</c> stores the map being processed.</param>
+    internal void ProcessCoverZones(TNavMeshSettings NavMeshSettings, TMapDefinition MapDefinition)
+    {
+        List<Double> InterceptDistances = new List<Double>();
+        List<TLine> InterceptLines = new List<TLine>();
+        List<TPoint> InterceptPoints = new List<TPoint>();
+        foreach (TPolygon Polygon in FPolygons)
+        {
+            // Calculate the centroid of the polygon.
+            double CentroidX = 0;
+            double CentroidY = 0;
+            double Area = 0;
+            for (int I = 0; I < Polygon.LineCount; I++)
+            {
+                double X0 = Polygon.Lines[I].A.X;
+                double Y0 = Polygon.Lines[I].A.Y;
+                double X1 = Polygon.Lines[I].B.X;
+                double Y1 = Polygon.Lines[I].B.Y;
+                double A = X0 * Y1 - X1 * Y0;
+                Area += X0 * Y1 - X1 * Y0;
+                CentroidX += (X0 + X1) * A;
+                CentroidY += (Y0 + Y1) * A;
+            }
+            TPoint Centroid = new TPoint(Convert.ToInt32(CentroidX / Area / 3), Convert.ToInt32(CentroidY / Area / 3));
+            for (int LineIndex = 0; LineIndex < Polygon.LineCount; LineIndex++)
+            {
+                TLine Line = Polygon.Lines[LineIndex];
+                // Ignore non-LINEDEF lines.
+                if (Line.MapLinedef < 0)
+                    continue;
+                TMapLinedef MapLinedef = MapDefinition.MapLinedef[Line.MapLinedef];
+                // Check if the line is candidate for cover segment.
+                bool LineCandidate = false;
+                if ((MapLinedef.SideFront < 0) || (MapLinedef.SideBack < 0))
+                    LineCandidate = true;
+                else
+                    if ((MapLinedef.SideFront >= 0) && (MapLinedef.SideBack >= 0))
+                    {
+                        TMapSector MapSector1 = MapDefinition.MapSector[MapDefinition.MapSidedef[MapLinedef.SideFront].Sector];
+                        TMapSector MapSector2 = MapDefinition.MapSector[MapDefinition.MapSidedef[MapLinedef.SideBack].Sector];
+                        int LineOpening = Math.Min(MapSector1.HeightCeiling, MapSector2.HeightCeiling) - Math.Max(MapSector1.HeightFloor, MapSector2.HeightFloor);
+                        int FloorHeightDifference = Math.Abs(MapSector1.HeightFloor - MapSector2.HeightFloor);
+                        if ((LineOpening <= 0) || (FloorHeightDifference > (NavMeshSettings.ActorHeight / 2)))
+                            LineCandidate = true;
+                    }
+                if ((LineCandidate) && (Centroid != Line.A) && (Centroid != Line.B))
+                {
+                    // Scan the line between the Centroid and vertex A.
+                    InterceptDistances.Clear();
+                    InterceptLines.Clear();
+                    InterceptPoints.Clear();
+                    int RayLineA = Line.A.Y - Centroid.Y;
+                    int RayLineB = Centroid.X - Line.A.X;
+                    int RayLineC = RayLineA * Centroid.X + RayLineB * Centroid.Y;
+                    InterceptDistances.Add(Math.Sqrt((Centroid.X - Line.A.X) * (Centroid.X - Line.A.X) + (Centroid.Y - Line.A.Y) * (Centroid.Y - Line.A.Y)));
+                    InterceptLines.Add(Line);
+                    InterceptPoints.Add(Line.A);
+                    int DeltaX = Centroid.X - Line.A.X;
+                    int DeltaY = Centroid.Y - Line.A.Y;
+                    double StepX;
+                    double StepY;
+                    if (Math.Abs(DeltaX) < Math.Abs(DeltaY))
+                    {
+                        StepX = 256 * DeltaX / DeltaY; 
+                        StepY = 256;
+                    }
+                    else
+                    {
+                        StepX = 256;
+                        StepY = 256 * DeltaY / DeltaX;
+                    }
+                    double PointX = Line.A.X;
+                    double PointY = Line.A.Y;
+                    TPoint Point = new TPoint((int)Math.Truncate(PointX), (int)Math.Truncate(PointY));
+                    int CellX = ((Point.X + 32768) >> 8) - OffsetCellX;
+                    int CellY = ((Point.Y + 32768) >> 8) - OffsetCellY;
+                    while ((CellX >= 0) && (CellX < NumCellX) && (CellY >= 0) && (CellY < NumCellY) && (InterceptLines.Count <= 3))
+                    {
+                        List<Int32> Cell = Cells![CellY, CellX];
+                        foreach (Int32 PolygonIndex in Cells![CellY, CellX])
+                        {
+                            TPolygon TestPolygon = Polygons[PolygonIndex];
+                            foreach (TLine TestLine in TestPolygon.Lines)
+                            {
+                                int TestLineA = TestLine.A.Y - TestLine.B.Y;
+                                int TestLineB = TestLine.B.X - TestLine.A.X;
+                                int TestLineC = TestLineA * TestLine.A.X + TestLineB * TestLine.A.Y;
+                                int Determinant = RayLineA * TestLineB - TestLineA * RayLineB;
+                                if (Determinant != 0)
+                                {
+                                    // Lines TestLine is not parallel to Centroid - Line.A.
+                                    double IntersectionX = (RayLineC * TestLineB - TestLineC * RayLineB) / Determinant;
+                                    double IntersectionY = (RayLineA * TestLineC - TestLineA * RayLineC) / Determinant;
+                                    TPoint Intersection = new TPoint((int)Math.Truncate(IntersectionX), (int)Math.Truncate(IntersectionY));
+                                    if ((IntersectionX >= Math.Min(TestLine.A.X, TestLine.B.X)) && (IntersectionX <= Math.Max(TestLine.A.X, TestLine.B.X)) && (IntersectionY >= Math.Min(TestLine.A.Y, TestLine.B.Y)) && (IntersectionY <= Math.Max(TestLine.A.Y, TestLine.B.Y)))
+                                    {
+                                        InterceptDistances.Add(Math.Sqrt((Centroid.X - IntersectionX) * (Centroid.X - IntersectionX) + (Centroid.Y - IntersectionY) * (Centroid.Y - IntersectionY)));
+                                        InterceptLines.Add(TestLine);
+                                        InterceptPoints.Add(Intersection);
+                                    }
+                                }
+                            }
+                        }
+                        PointX += StepX;
+                        PointY += StepY;
+                        Point.X = (int)Math.Truncate(PointX);
+                        Point.Y = (int)Math.Truncate(PointY);
+                        CellX = ((Point.X + 32768) >> 8) - OffsetCellX;
+                        CellY = ((Point.Y + 32768) >> 8) - OffsetCellY;
+                    }
+                    bool Result = false;
+                    if (InterceptDistances.Count > 1)
+                    {
+                        for (int I = 0; I < InterceptDistances.Count - 2; I++)
+                            for (int J = I + 1; J < InterceptDistances.Count - 1; J++)
+                                if (InterceptDistances[I] > InterceptDistances[J])
+                                {
+                                    Double TempInterceptDistance = InterceptDistances[I];
+                                    InterceptDistances[I] = InterceptDistances[J];
+                                    InterceptDistances[J] = TempInterceptDistance;
+                                    TLine TempInterceptLine = InterceptLines[I];
+                                    InterceptLines[I] = InterceptLines[J];
+                                    InterceptLines[J] = TempInterceptLine;
+                                    TPoint TempInterceptPoint = InterceptPoints[I];
+                                    InterceptPoints[I] = InterceptPoints[J];
+                                    InterceptPoints[J] = TempInterceptPoint;
+                                }
+                        TPoint MidPoint = new TPoint(0, 0);
+                        int K = 0;
+                        while ((!Result) && (K < InterceptDistances.Count - 1))
+                        {
+                            MidPoint.X = (InterceptPoints[K].X + InterceptPoints[K + 1].X) / 2;
+                            MidPoint.Y = (InterceptPoints[K].Y + InterceptPoints[K + 1].Y) / 2;
+                            int MidCellX = ((MidPoint.X + 32768) >> 8) - OffsetCellX;
+                            int MidCellY = ((MidPoint.Y + 32768) >> 8) - OffsetCellY;
+                            if ((MidCellX >= 0) && (MidCellX < NumCellX) && (MidCellY >= 0) && (MidCellY < NumCellY))
+                            {
+                                List<Int32> MidPointCell = Cells![MidCellY, MidCellX];
+                                for (int J = 0; J < MidPointCell.Count; J++)
+                                {
+                                    int Index = MidPointCell[J];
+                                    if (PointInsidePolygon(Polygons[Index], MidPoint))
+                                    {
+                                        Result = true;
+                                        break;
+                                    }
+                                }
+                            }
+                            K++;
+                        }
+                    }
+                    if (Result)
+                        Polygon.BlockingLines.Add(LineIndex);
+                    else
+                    {
+                        // Scan the line between the Centroid and vertex B.
+                        InterceptDistances.Clear();
+                        InterceptLines.Clear();
+                        InterceptPoints.Clear();
+                        RayLineA = Line.B.Y - Centroid.Y;
+                        RayLineB = Centroid.X - Line.B.X;
+                        RayLineC = RayLineA * Centroid.X + RayLineB * Centroid.Y;
+                        InterceptDistances.Add(Math.Sqrt((Centroid.X - Line.B.X) * (Centroid.X - Line.B.X) + (Centroid.Y - Line.B.Y) * (Centroid.Y - Line.B.Y)));
+                        InterceptLines.Add(Line);
+                        InterceptPoints.Add(Line.B);
+                        DeltaX = Centroid.X - Line.B.X;
+                        DeltaY = Centroid.Y - Line.B.Y;
+                        StepX = 0;
+                        StepY = 0;
+                        if (Math.Abs(DeltaX) < Math.Abs(DeltaY))
+                        {
+                            StepX = 256 * DeltaX / DeltaY;
+                            StepY = 256;
+                        }
+                        else
+                        {
+                            StepX = 256;
+                            StepY = 256 * DeltaY / DeltaX;
+                        }
+                        PointX = Line.B.X;
+                        PointY = Line.B.Y;
+                        Point = new TPoint((int)Math.Truncate(PointX), (int)Math.Truncate(PointY));
+                        CellX = ((Point.X + 32768) >> 8) - OffsetCellX;
+                        CellY = ((Point.Y + 32768) >> 8) - OffsetCellY;
+                        while ((CellX >= 0) && (CellX < NumCellX) && (CellY >= 0) && (CellY < NumCellY) && (InterceptLines.Count <= 3))
+                        {
+                            List<Int32> Cell = Cells![CellY, CellX];
+                            foreach (Int32 PolygonIndex in Cells![CellY, CellX])
+                            {
+                                TPolygon TestPolygon = Polygons[PolygonIndex];
+                                foreach (TLine TestLine in TestPolygon.Lines)
+                                {
+                                    int TestLineA = TestLine.A.Y - TestLine.B.Y;
+                                    int TestLineB = TestLine.B.X - TestLine.A.X;
+                                    int TestLineC = TestLineA * TestLine.A.X + TestLineB * TestLine.A.Y;
+                                    int Determinant = RayLineA * TestLineB - TestLineA * RayLineB;
+                                    if (Determinant != 0)
+                                    {
+                                        // Lines TestLine is not parallel to Centroid - Line.A.
+                                        double IntersectionX = (RayLineC * TestLineB - TestLineC * RayLineB) / Determinant;
+                                        double IntersectionY = (RayLineA * TestLineC - TestLineA * RayLineC) / Determinant;
+                                        TPoint Intersection = new TPoint((int)Math.Truncate(IntersectionX), (int)Math.Truncate(IntersectionY));
+                                        if ((IntersectionX >= Math.Min(TestLine.A.X, TestLine.B.X)) && (IntersectionX <= Math.Max(TestLine.A.X, TestLine.B.X)) && (IntersectionY >= Math.Min(TestLine.A.Y, TestLine.B.Y)) && (IntersectionY <= Math.Max(TestLine.A.Y, TestLine.B.Y)))
+                                        {
+                                            InterceptDistances.Add(Math.Sqrt((Centroid.X - IntersectionX) * (Centroid.X - IntersectionX) + (Centroid.Y - IntersectionY) * (Centroid.Y - IntersectionY)));
+                                            InterceptLines.Add(TestLine);
+                                            InterceptPoints.Add(Intersection);
+                                        }
+                                    }
+                                }
+                            }
+                            PointX += StepX;
+                            PointY += StepY;
+                            Point.X = (int)Math.Truncate(PointX);
+                            Point.Y = (int)Math.Truncate(PointY);
+                            CellX = ((Point.X + 32768) >> 8) - OffsetCellX;
+                            CellY = ((Point.Y + 32768) >> 8) - OffsetCellY;
+                        }
+                        Result = false;
+                        if (InterceptDistances.Count > 1)
+                        {
+                            for (int I = 0; I < InterceptDistances.Count - 2; I++)
+                                for (int J = I + 1; J < InterceptDistances.Count - 1; J++)
+                                    if (InterceptDistances[I] > InterceptDistances[J])
+                                    {
+                                        Double TempInterceptDistance = InterceptDistances[I];
+                                        InterceptDistances[I] = InterceptDistances[J];
+                                        InterceptDistances[J] = TempInterceptDistance;
+                                        TLine TempInterceptLine = InterceptLines[I];
+                                        InterceptLines[I] = InterceptLines[J];
+                                        InterceptLines[J] = TempInterceptLine;
+                                        TPoint TempInterceptPoint = InterceptPoints[I];
+                                        InterceptPoints[I] = InterceptPoints[J];
+                                        InterceptPoints[J] = TempInterceptPoint;
+                                    }
+                            TPoint MidPoint = new TPoint(0, 0);
+                            int K = 0;
+                            while ((!Result) && (K < InterceptDistances.Count - 1))
+                            {
+                                MidPoint.X = (InterceptPoints[K].X + InterceptPoints[K + 1].X) / 2;
+                                MidPoint.Y = (InterceptPoints[K].Y + InterceptPoints[K + 1].Y) / 2;
+                                int MidCellX = ((MidPoint.X + 32768) >> 8) - OffsetCellX;
+                                int MidCellY = ((MidPoint.Y + 32768) >> 8) - OffsetCellY;
+                                if ((MidCellX >= 0) && (MidCellX < NumCellX) && (MidCellY >= 0) && (MidCellY < NumCellY))
+                                {
+                                    List<Int32> MidPointCell = Cells![MidCellY, MidCellX];
+                                    for (int J = 0; J < MidPointCell.Count; J++)
+                                    {
+                                        int Index = MidPointCell[J];
+                                        if (PointInsidePolygon(Polygons[Index], MidPoint))
+                                        {
+                                            Result = true;
+                                            break;
+                                        }
+                                    }
+                                }
+                                K++;
+                            }
+                        }
+                        if (Result)
+                            Polygon.BlockingLines.Add(LineIndex);
+                    }
+                    //Polygon.BlockingLines.Add(LineIndex); // Forces the creation of the cover zone!
+                }
+            }
+        }
+    }
+    /// <summary>
     /// Function <c>Build</c> produces a NavMesh with the specified map and settings.
     /// </summary>
     /// <param name="NavMeshSettings"><c>NavMeshSettings</c> stores the settings of the process.</param>
+    /// <param name="MapDefinition"><c>MapDefinition</c> stores the map being processed.</param>
     public void Build(TNavMeshSettings NavMeshSettings, TMapDefinition MapDefinition)
     {
         ArgumentNullException.ThrowIfNull(NavMeshSettings);
         ArgumentNullException.ThrowIfNull(MapDefinition);
-        // Builds the map grid.
-        CalcMapGrid(MapDefinition);
         // Performs some filtering.
         PreProcessMapData(MapDefinition);
         // Process the map data.
@@ -1956,6 +2185,7 @@ public class TNavMesh : Object
         {
             ProcessTeleporters(MapDefinition);
             ProcessCells();
+            ProcessCoverZones(NavMeshSettings, MapDefinition);
         }
     }
     /// <summary>
@@ -1986,6 +2216,16 @@ public class TNavMesh : Object
                         SB.AppendFormat(" {0}", PolygonIndex);
                     SB.AppendLine();
                 }
+        SB.AppendLine();
+        SB.AppendLine("# cover zones");
+        for (int I = 0; I < Polygons.Count; I++)
+            if (Polygons[I].BlockingLines.Count > 0)
+            {
+                SB.AppendFormat("b {0}", I);
+                foreach (Int32 LineIndex in Polygons[I].BlockingLines)
+                    SB.AppendFormat(" {0}", LineIndex);
+                SB.AppendLine();
+            }
         return SB.ToString();
     }
 }
