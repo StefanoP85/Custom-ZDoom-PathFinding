@@ -100,6 +100,13 @@ class TNavMeshReader : TCustomNavMesh
 		}
 		return Result;
 	}
+	String PeekNextToken()
+	{
+		int SavedPosition = Position;
+		String Result = GetNextToken();
+		Position = SavedPosition;
+		return Result;
+	}
 	static TNavMeshReader Create(String SourceCode)
 	{
 		TNavMeshReader Result = New('TNavMeshReader');
@@ -136,6 +143,9 @@ class TNavMesh : TCustomNavMesh
 	int CellNumY;
 	Array<Int> Cells;
 	Array<Int> CellsIndex;
+	// Cover zones.
+	Array<Int> CoverLines;
+	Array<Int> CoverLinesIndex;
 	// Node list.
 	Array<TNavNode> NavNodes;
 	// Checks if a point is inside a convex polygon.
@@ -188,32 +198,14 @@ class TNavMesh : TCustomNavMesh
 					return PolygonIndex;
 				CurrentCellIndex++;
 			}
-			return -1;
-		}
-		// Search through all polygons.
-		int LineIndex = 0;
-		int PolygonIndex = 0;
-		int CurrentPolygonLine = 0;
-		bool NotFound = true;
-		while ((NotFound) && (LineIndex < LineCount))
-		{
-			// Check if the point is inside the polygon.
-			if (PointInPolygon(Point, PolygonIndex))
-				return PolygonIndex;
-			LineIndex++;
-			CurrentPolygonLine++;
-			if (CurrentPolygonLine >= NavPolygons[PolygonIndex].LineCount)
-			{
-				PolygonIndex++;
-				CurrentPolygonLine = 0;
-			}
 		}
 		return -1;
 	}
-	// Cheap distance calculation.
-	int ApproxDistance(int X1, int Y1, int X2, int Y2)
+	// Euclidean distance.
+	int SqrDistance(int X1, int Y1, int X2, int Y2)
 	{
-		return ((X1 - X2) ** 2) + ((Y1 - Y2) ** 2);
+		Vector2 Result = (X1 - X2, Y1 - Y2);
+		return Result.Length();
 	}
 	// Perform the A* algorythm.
 	bool SearchRoute(int StartPolygon, int StopPolygon, in out Array<TNavRoute> Route)
@@ -222,8 +214,8 @@ class TNavMesh : TCustomNavMesh
 		Route.Clear();
 		if ((StartPolygon < 0) || (StopPolygon < 0) ||(StartPolygon == StopPolygon))
 			return false;
-		int StopX = (NavLines[NavPolygons[StopPolygon].LineFirst].X1 + NavLines[NavPolygons[StopPolygon].LineFirst].X2) >> 1;
-		int StopY = (NavLines[NavPolygons[StopPolygon].LineFirst].Y1 + NavLines[NavPolygons[StopPolygon].LineFirst].Y2) >> 1;
+		int StopX = (NavLines[NavPolygons[StopPolygon].LineFirst].X1 + NavLines[NavPolygons[StopPolygon].LineFirst].X2) / 2;
+		int StopY = (NavLines[NavPolygons[StopPolygon].LineFirst].Y1 + NavLines[NavPolygons[StopPolygon].LineFirst].Y2) / 2;
 		// Initialize the open list and the closed list.
 		Array<int> OpenList;
 		int CurrentNode;
@@ -278,8 +270,8 @@ class TNavMesh : TCustomNavMesh
 							TNavRoute NavRoute = New('TNavRoute');
 							NavRoute.Polygon = NodeIndex;
 							NavRoute.LinePortal = NavNodes[NodeIndex].LinePortal;
-							NavRoute.Position.X = (NavLines[NavNodes[NodeIndex].LinePortal].X1 + NavLines[NavNodes[NodeIndex].LinePortal].X2) >> 1;
-							NavRoute.Position.Y = (NavLines[NavNodes[NodeIndex].LinePortal].Y1 + NavLines[NavNodes[NodeIndex].LinePortal].Y2) >> 1;
+							NavRoute.Position.X = (NavLines[NavNodes[NodeIndex].LinePortal].X1 + NavLines[NavNodes[NodeIndex].LinePortal].X2) / 2;
+							NavRoute.Position.Y = (NavLines[NavNodes[NodeIndex].LinePortal].Y1 + NavLines[NavNodes[NodeIndex].LinePortal].Y2) / 2;
 							NavRoute.Position.Z = NavPolygons[NodeIndex].HeightFloor;
 							Route.Push(NavRoute);
 							NodeIndex = NavNodes[NodeIndex].Parent;
@@ -291,7 +283,7 @@ class TNavMesh : TCustomNavMesh
 					if (!NavNodes[NodeIndex].Closed)
 						if ((!NavNodes[NodeIndex].Visited) || ((NavNodes[CurrentNode].G + 1) < NavNodes[NodeIndex].G))
 						{
-							NavNodes[NodeIndex].H = ApproxDistance(
+							NavNodes[NodeIndex].H = SqrDistance(
 								(NavLines[LineIndex].X1 + NavLines[LineIndex].X2) / 2,
 								(NavLines[LineIndex].Y1 + NavLines[LineIndex].Y2) / 2,
 								StopX,
@@ -343,7 +335,7 @@ class TNavMesh : TCustomNavMesh
 	// Creates an instance of NavMesh.
 	static TNavMesh Create(String MapName)
 	{
-		String LumpName = String.Format("navmeshes/%s.txt", MapName);
+		String LumpName = String.Format("NAVMESHES/%s.txt", MapName);
 		int LumpNumber = Wads.CheckNumForFullName(LumpName);
 		if (LumpNumber < 0)
 			return null;
@@ -352,6 +344,10 @@ class TNavMesh : TCustomNavMesh
 		if (!(SourceCode.Mid(0, 14) ~== "# ZDOOMNAVMESH"))
 			return null;
 		// Parse the source code.
+		int CurrentCell = 0;
+		int CurrentCellIndex = 0;
+		int CurrentCoverLine = 0;
+		int CurrentCoverLineIndex = 0;
 		TNavMeshReader NavMeshLexer = TNavMeshReader.Create(SourceCode);
 		TNavMesh Result = New('TNavMesh');
 		while (!NavMeshLexer.EOF())
@@ -391,32 +387,49 @@ class TNavMesh : TCustomNavMesh
 				Result.CellOffsetY = NavMeshLexer.GetNextToken().ToInt();
 				Result.CellNumX = NavMeshLexer.GetNextToken().ToInt();
 				Result.CellNumY = NavMeshLexer.GetNextToken().ToInt();
-				// Cells polygons command.
-				int CurrentCell = 0;
-				int CurrentCellIndex = 0;
-				while (!NavMeshLexer.EOF())
+			}
+			// Cells space partitioning command.
+			if (Token ~== "C")
+			{
+				int CellNumber = NavMeshLexer.GetNextToken().ToInt();
+				// Cells indexes management.
+				while (CurrentCellIndex <= CellNumber)
 				{
-					Token = NavMeshLexer.GetNextToken();
-					if (Token ~== "C")
-					{
-						int CellNumber = NavMeshLexer.GetNextToken().ToInt();
-						// Cells indexes management.
-						while (CurrentCellIndex <= CellNumber)
-						{
-							Result.CellsIndex.Push(CurrentCell);
-							CurrentCellIndex++;
-						}
-					}
-					else
-					{
-						Result.Cells.Push(Token.ToInt());
-						CurrentCell++;
-					}
+					Result.CellsIndex.Push(CurrentCell);
+					CurrentCellIndex++;
 				}
-				// Add last cell index.
-				Result.CellsIndex.Push(CurrentCell);
+				String NextToken = NavMeshLexer.PeekNextToken().Left(1);
+				while ((NextToken >= "0") && (NextToken <= "9"))
+				{
+					Result.Cells.Push(NavMeshLexer.GetNextToken().ToInt());
+					CurrentCell++;
+					NextToken = NavMeshLexer.PeekNextToken().Left(1);
+				}
+			}
+			// Cover zones command.
+			if (Token ~== "B")
+			{
+				int PolygonNumber = NavMeshLexer.GetNextToken().ToInt();
+				// Cells indexes management.
+				while (CurrentCoverLineIndex <= PolygonNumber)
+				{
+					Result.CoverLinesIndex.Push(CurrentCoverLine);
+					CurrentCoverLineIndex++;
+				}
+				String NextToken = NavMeshLexer.PeekNextToken().Left(1);
+				while ((NextToken >= "0") && (NextToken <= "9"))
+				{
+					Result.CoverLines.Push(NavMeshLexer.GetNextToken().ToInt());
+					CurrentCoverLine++;
+					NextToken = NavMeshLexer.PeekNextToken().Left(1);
+				}
 			}
 		}
+		// Add last cell index.
+		Result.CellsIndex.Push(CurrentCell);
+		// Add last cover zone index.
+		for (int I = Result.CoverLinesIndex.Size(); I <= Result.NavPolygons.Size(); I++)
+			Result.CoverLinesIndex.Push(CurrentCoverLine);
 		// Build the node list.
 		for (int I = 0; I < Result.NavPolygons.Size(); I++)
 		{
@@ -436,11 +449,11 @@ class TNavMesh : TCustomNavMesh
 class TNavMeshHandler : EventHandler
 {
 	TNavMesh NavMesh;
-    override void WorldLoaded(WorldEvent E)
+	override void WorldLoaded(WorldEvent E)
 	{
 		NavMesh = TNavMesh.Create(Level.MapName);
 	}
-    override void WorldUnloaded(WorldEvent E)
+	override void WorldUnloaded(WorldEvent E)
 	{
 		NavMesh.Destroy();
 		NavMesh = null;
@@ -477,67 +490,58 @@ class TCustomNavMeshActor : KAI_Actor abstract
 	{
 		int CurrentSelfPolygon = NavMesh.SearchPolygon(Pos);
 		int CurrentTargetPolygon = NavMesh.SearchPolygon(Destination);
-		if ((CurrentSelfPolygon >= 0) && (CurrentTargetPolygon >= 0))// && (CurrentSelfPolygon != CurrentTargetPolygon))
+		if ((CurrentSelfPolygon >= 0) && (CurrentTargetPolygon >= 0) && (CurrentSelfPolygon != CurrentTargetPolygon))
 		{
 			RouteLastSelfPolygon = CurrentSelfPolygon;
 			RouteLastTargetPolygon = CurrentTargetPolygon;
-			if (NavMesh.SearchRoute(CurrentSelfPolygon, CurrentTargetPolygon, Route))
-				return true;
-			else
-				return false;
+			return NavMesh.SearchRoute(CurrentSelfPolygon, CurrentTargetPolygon, Route);
 		}
 		return false;
 	}
 	void RouteChase(Vector3 Destination)
 	{
-		// Update the current position.
+		// Update the current position and the target position.
 		int CurrentSelfPolygon = NavMesh.SearchPolygon(Pos);
-		if (CurrentSelfPolygon == Route[RouteStep].Polygon)
-		{
-			if (RouteStep > 0)
-				RouteStep--;
-			else
-			{
-				// Destination reached, the Route is no longer necessary.
-				RouteEnd();
-				return;
-			}
-		}
-		// Check if the target has moved.
 		int CurrentTargetPolygon = NavMesh.SearchPolygon(Destination);
-		if (CurrentTargetPolygon < 0)
+		if ((CurrentSelfPolygon < 0) || (CurrentTargetPolygon < 0))
 		{
 			// No route!
 			RouteEnd();
+			KAI_MoveTowards(Target.Pos);;
 			return;
+		}
+		// Update the next step.
+		if ((RouteStep > 0) && (CurrentSelfPolygon == Route[RouteStep].Polygon))
+		{
+			RouteStep--;
+			if (RouteStep == 0)
+			{
+				// Destination reached, the Route is no longer necessary.
+				RouteEnd();
+				KAI_MoveTowards(Target.Pos);;
+				return;
+			}
 		}
 		if (CurrentTargetPolygon != RouteLastTargetPolygon)
 		{
 			// Checks if the target has moved slightly.
 			if (NavMesh.UpdateRoute(RouteLastTargetPolygon, CurrentTargetPolygon, Route, RouteStep))
-			{
 				RouteLastTargetPolygon = CurrentTargetPolygon;
-			}
 			else
 			{
 				// A new route is needed.
 				RouteEnd();
+				KAI_MoveTowards(Target.Pos);;
 				return;
 			}
 		}
 		// Move towards the current destination.
-		Vector3 Destination = Route[RouteStep].Position;
-		KAI_MoveTowards(Route[RouteStep].Position, 0);
+		KAI_MoveTowards(Route[RouteStep].Position);
 	}
 	void SightChase()
 	{
 		int ChaseFlags = 0;
 		KAI_Chase_PreChecks(ChaseFlags);
-		KAI_Chase_FriendsAttackPlayerEnemies(ChaseFlags);
-		KAI_Chase_Retarget(ChaseFlags, true);
-		KAI_Chase_HandleActiveSound(ChaseFlags);
-		KAI_Chase_HandleStrafing(Target, ChaseFlags);
-		KAI_Chase_PatrolHandling();
 		KAI_MoveTowards(Target.Pos);
 		ShouldAttack();
 	}
