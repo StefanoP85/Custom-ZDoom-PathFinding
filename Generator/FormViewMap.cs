@@ -242,12 +242,6 @@ public partial class FormViewMap : Form
             int V2X = (V2.X - PosX + 32768) >> ZoomFactor;
             int V2Y = ((-V2.Y) - PosY + 32768) >> ZoomFactor;
             if (ComputeVisible(V1X, V1Y, V2X, V2Y))
-            /*if (
-                ((V1X >= ViewMinX) && (V1X <= ViewMaxX) && (V1Y >= ViewMinY) && (V1Y <= ViewMaxY))
-                || ((V2X >= ViewMinX) && (V2X <= ViewMaxX) && (V2Y >= ViewMinY) && (V2Y <= ViewMaxY))
-                || ((V1X < ViewMinX) && (V2X > ViewMaxX) && (V1Y >= ViewMinY) && (V2Y <= ViewMaxY))
-                || ((V1X >= ViewMinX) && (V2X <= ViewMaxX) && (V1Y < ViewMinY) && (V2Y > ViewMaxY))
-            )*/
             {
                 if (MapLinedef.Blocking)
                     E.Graphics.DrawLine(WhitePen, V1X, V1Y, V2X, V2Y);
@@ -263,12 +257,6 @@ public partial class FormViewMap : Form
                 int V1Y = ((-Line.A.Y) - PosY + 32768) >> ZoomFactor;
                 int V2X = (Line.B.X - PosX + 32768) >> ZoomFactor;
                 int V2Y = ((-Line.B.Y) - PosY + 32768) >> ZoomFactor;
-                /*if (
-                    ((V1X >= ViewMinX) && (V1X <= ViewMaxX) && (V1Y >= ViewMinY) && (V1Y <= ViewMaxY))
-                    || ((V2X >= ViewMinX) && (V2X <= ViewMaxX) && (V2Y >= ViewMinY) && (V2Y <= ViewMaxY))
-                    || ((V1X < ViewMinX) && (V2X > ViewMaxX) && (V1Y >= ViewMinY) && (V2Y <= ViewMaxY))
-                    || ((V1X >= ViewMinX) && (V2X <= ViewMaxX) && (V1Y < ViewMinY) && (V2Y > ViewMaxY))
-                )*/
                 if (ComputeVisible(V1X, V1Y, V2X, V2Y))
                 {
                     if (Line.Portal >= 0)
