@@ -134,6 +134,105 @@ public partial class FormViewMap : Form
         Pen RedPen = new Pen(Color.Red);
         Pen WhitePen = new Pen(Color.White);
         Pen YellowPen = new Pen(Color.Yellow, 3);
+        // Line clipping, by Cohen–Sutherland Algorithm.
+        const int INSIDE = 0b0000;
+        const int LEFT = 0b0001;
+        const int RIGHT = 0b0010;
+        const int BOTTOM = 0b0100;
+        const int TOP = 0b1000;
+        Func<int, int, int> ComputeRC = (X, Y) => {
+            int Result = INSIDE;
+            if (X < ViewMinX)
+                Result |= LEFT;
+            if (X > ViewMaxX)
+                Result |= RIGHT;
+            if (Y < ViewMinY)
+                Result |= BOTTOM;
+            if (Y > ViewMaxY)
+                Result |= TOP;
+            return Result;
+        };
+        Func<int, int, int, int, bool> ComputeVisible = (X1, Y1, X2, Y2) =>
+        {
+            bool Result = false;
+            int RC1 = ComputeRC(X1, Y1);
+            int RC2 = ComputeRC(X2, Y2);
+            while (true)
+            {
+                if ((RC1 == 0) && (RC2 == 0))
+                {
+                    // Both endpoints are visible.
+                    Result = true;
+                    break;
+                }
+                else
+                {
+                    if ((RC1 & RC2) != 0)
+                    {
+                        // Both endpoints are not visible, in same region.
+                        break;
+                    }
+                    else
+                    {
+                        // Some segment of line lies within the screen port.
+                        int RC;
+                        double X;
+                        double Y;
+                        // At least one endpoint is outside the screen port, pick it.
+                        if (RC1 != 0)
+                            RC = RC1;
+                        else
+                            RC = RC2;
+                        // Find intersection point using formulas y = y1 + slope * (x - x1), x = x1 + (1 / slope) * (y - y1).
+                        if ((RC & TOP) != 0)
+                        {
+                            // Point is above the screen port.
+                            X = X1 + (X2 - X1) * (ViewMaxY - Y1) / (Y2 - Y1);
+                            Y = ViewMaxY;
+                        }
+                        else
+                            if ((RC & BOTTOM) != 0)
+                        {
+                            // Point is below the screen port.
+                            X = X1 + (X2 - X1) * (ViewMaxY - Y1) / (Y2 - Y1);
+                            Y = ViewMinY;
+                        }
+                        else
+                                if ((RC & RIGHT) != 0)
+                        {
+                            // Point is to the right of the screen port.
+                            Y = Y1 + (Y2 - X1) * (ViewMaxY - X1) / (X2 - X1);
+                            X = ViewMaxX;
+                        }
+                        else
+                                    if ((RC & LEFT) != 0)
+                        {
+                            // Point is to the left of the screen port.
+                            Y = Y1 + (X2 - X1) * (ViewMinY - X1) / (X2 - X1);
+                            X = ViewMinX;
+                        }
+                        else
+                        {
+                            X = 0;
+                            Y = 0;
+                        }
+                        if (RC == RC1)
+                        {
+                            X1 = Convert.ToInt32(X);
+                            Y1 = Convert.ToInt32(Y);
+                            RC1 = ComputeRC(X1, Y1);
+                        }
+                        else
+                        {
+                            X2 = Convert.ToInt32(X);
+                            Y2 = Convert.ToInt32(Y);
+                            RC2 = ComputeRC(X2, Y2);
+                        }
+                    }
+                }
+            }
+            return Result;
+        };
         foreach (TMapLinedef MapLinedef in MapDefinition.MapLinedef)
         {
             TMapVertex V1 = MapDefinition.MapVertex[MapLinedef.V1];
@@ -142,12 +241,13 @@ public partial class FormViewMap : Form
             int V1Y = ((-V1.Y) - PosY + 32768) >> ZoomFactor;
             int V2X = (V2.X - PosX + 32768) >> ZoomFactor;
             int V2Y = ((-V2.Y) - PosY + 32768) >> ZoomFactor;
-            if (
+            if (ComputeVisible(V1X, V1Y, V2X, V2Y))
+            /*if (
                 ((V1X >= ViewMinX) && (V1X <= ViewMaxX) && (V1Y >= ViewMinY) && (V1Y <= ViewMaxY))
                 || ((V2X >= ViewMinX) && (V2X <= ViewMaxX) && (V2Y >= ViewMinY) && (V2Y <= ViewMaxY))
                 || ((V1X < ViewMinX) && (V2X > ViewMaxX) && (V1Y >= ViewMinY) && (V2Y <= ViewMaxY))
                 || ((V1X >= ViewMinX) && (V2X <= ViewMaxX) && (V1Y < ViewMinY) && (V2Y > ViewMaxY))
-            )
+            )*/
             {
                 if (MapLinedef.Blocking)
                     E.Graphics.DrawLine(WhitePen, V1X, V1Y, V2X, V2Y);
@@ -163,12 +263,13 @@ public partial class FormViewMap : Form
                 int V1Y = ((-Line.A.Y) - PosY + 32768) >> ZoomFactor;
                 int V2X = (Line.B.X - PosX + 32768) >> ZoomFactor;
                 int V2Y = ((-Line.B.Y) - PosY + 32768) >> ZoomFactor;
-                if (
+                /*if (
                     ((V1X >= ViewMinX) && (V1X <= ViewMaxX) && (V1Y >= ViewMinY) && (V1Y <= ViewMaxY))
                     || ((V2X >= ViewMinX) && (V2X <= ViewMaxX) && (V2Y >= ViewMinY) && (V2Y <= ViewMaxY))
                     || ((V1X < ViewMinX) && (V2X > ViewMaxX) && (V1Y >= ViewMinY) && (V2Y <= ViewMaxY))
                     || ((V1X >= ViewMinX) && (V2X <= ViewMaxX) && (V1Y < ViewMinY) && (V2Y > ViewMaxY))
-                )
+                )*/
+                if (ComputeVisible(V1X, V1Y, V2X, V2Y))
                 {
                     if (Line.Portal >= 0)
                         E.Graphics.DrawLine(BluePen, V1X, V1Y, V2X, V2Y);
