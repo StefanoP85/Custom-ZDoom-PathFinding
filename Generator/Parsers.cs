@@ -457,18 +457,18 @@ public sealed class TUdmfParser : Object
                 MapDefinition.AddMapVertex(GetMapVertex()!);
             else
                 if (string.Equals(Token, "LINEDEF", StringComparison.OrdinalIgnoreCase))
-                    MapDefinition.AddMapLinedef(GetMapLinedef()!);
-                else
+                MapDefinition.AddMapLinedef(GetMapLinedef()!);
+            else
                     if (string.Equals(Token, "SIDEDEF", StringComparison.OrdinalIgnoreCase))
-                        MapDefinition.AddMapSidedef(GetMapSidedef()!);
-                    else
+                MapDefinition.AddMapSidedef(GetMapSidedef()!);
+            else
                         if (string.Equals(Token, "SECTOR", StringComparison.OrdinalIgnoreCase))
-                            MapDefinition.AddMapSector(GetMapSector()!);
-                        else
+                MapDefinition.AddMapSector(GetMapSector()!);
+            else
                             if (string.Equals(Token, "THING", StringComparison.OrdinalIgnoreCase))
-                                MapDefinition.AddMapThing(GetMapThing()!);
-                            else
-                                throw new EUdmfException(string.Format("Row %n, column %n: unknown UDMF entity '%s'", UdmfLexer.Row, UdmfLexer.Column, Token));
+                MapDefinition.AddMapThing(GetMapThing()!);
+            else
+                throw new EUdmfException(string.Format("Row %n, column %n: unknown UDMF entity '%s'", UdmfLexer.Row, UdmfLexer.Column, Token));
             Token = UdmfLexer.GetToken();
         }
     }

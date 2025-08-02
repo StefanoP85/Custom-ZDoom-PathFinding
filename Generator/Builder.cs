@@ -252,7 +252,7 @@ public class TPolygon : Object
 /// Enum <c>TPPLOrientation</c> represents the possible orientations of a polygon.
 /// </summary>
 /// <remarks>
-/// TPPLOrientation looks very similar to TOrientation, and the are, but I wished to keep them separated, to avoid typing / logic errors.
+/// TPPLOrientation looks very similar to TOrientation, but with reversed values.
 /// </remarks>
 public enum TPPLOrientation
 {
@@ -1572,7 +1572,7 @@ public class TNavMesh : Object
                         if (VerticalSpace < NavMeshSettings.ActorHeight)
                             LineIsPortal = false;
                     }
-                    else 
+                    else
                     {
                         // Check if the two floor heights are too different.
                         int HeightFloorDifference = Math.Abs(Polygon.HeightFloor - FPolygons[CurrentPolygonIndex].HeightFloor);
@@ -1923,14 +1923,14 @@ public class TNavMesh : Object
                     LineCandidate = true;
                 else
                     if ((MapLinedef.SideFront >= 0) && (MapLinedef.SideBack >= 0))
-                    {
-                        TMapSector MapSector1 = MapDefinition.MapSector[MapDefinition.MapSidedef[MapLinedef.SideFront].Sector];
-                        TMapSector MapSector2 = MapDefinition.MapSector[MapDefinition.MapSidedef[MapLinedef.SideBack].Sector];
-                        int LineOpening = Math.Min(MapSector1.HeightCeiling, MapSector2.HeightCeiling) - Math.Max(MapSector1.HeightFloor, MapSector2.HeightFloor);
-                        int FloorHeightDifference = Math.Abs(MapSector1.HeightFloor - MapSector2.HeightFloor);
-                        if ((LineOpening <= 0) || (FloorHeightDifference > (NavMeshSettings.ActorHeight / 2)))
-                            LineCandidate = true;
-                    }
+                {
+                    TMapSector MapSector1 = MapDefinition.MapSector[MapDefinition.MapSidedef[MapLinedef.SideFront].Sector];
+                    TMapSector MapSector2 = MapDefinition.MapSector[MapDefinition.MapSidedef[MapLinedef.SideBack].Sector];
+                    int LineOpening = Math.Min(MapSector1.HeightCeiling, MapSector2.HeightCeiling) - Math.Max(MapSector1.HeightFloor, MapSector2.HeightFloor);
+                    int FloorHeightDifference = Math.Abs(MapSector1.HeightFloor - MapSector2.HeightFloor);
+                    if ((LineOpening <= 0) || (FloorHeightDifference > (NavMeshSettings.ActorHeight / 2)))
+                        LineCandidate = true;
+                }
                 if ((LineCandidate) && (CentroidXX != Line.A.X) && (CentroidXX != Line.B.X) && (CentroidYY != Line.A.Y) && (CentroidYY != Line.B.Y))
                 {
                     // Scan the line between the Centroid and the center of the line Line.
