@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Author: Pollazzon Stefano
  * Project: ZDoom Navmesh builder
  * This module contains the navmesh generation algorythms
@@ -15,9 +15,9 @@ namespace NavmeshBuilder;
 /// </summary>
 public enum TOrientation
 {
-    CounterClockwise = -1,
+    Clockwise = -1,
     Collinear = 0,
-    Clockwise = 1
+    CounterClockwise = 1,
 }
 /// <summary>
 /// Class <c>TPoint</c> represents a simple point in 2D Euclidean space.
@@ -254,12 +254,6 @@ public class TPolygon : Object
 /// <remarks>
 /// TPPLOrientation looks very similar to TOrientation, but with reversed values.
 /// </remarks>
-public enum TPPLOrientation
-{
-    PPLOrientationClockwise = -1,
-    PPLOrientationNone = 0,
-    PPLOrientationCounterClockwise = 1,
-};
 /// <summary>
 /// Class <c>TPPLPoint</c> represents a point in 2D Euclidean space, but with floating point arithmetic.
 /// </summary>
@@ -396,7 +390,7 @@ public class TPPLPolygon : Object, ICloneable
     /// Function <c>GetOrientation</c> calculates the points orientation of the polygon.
     /// </summary>
     /// <returns>A <c>TPPLOrientation</c> value of the orientation.</returns>
-    public TPPLOrientation GetOrientation()
+    public TOrientation GetOrientation()
     {
         int I1, I2;
         double Area = 0;
@@ -408,19 +402,19 @@ public class TPPLPolygon : Object, ICloneable
             Area += Points[I1].X * Points[I2].Y - Points[I1].Y * Points[I2].X;
         }
         if (Area > 0)
-            return TPPLOrientation.PPLOrientationCounterClockwise;
+            return TOrientation.CounterClockwise;
         if (Area < 0)
-            return TPPLOrientation.PPLOrientationClockwise;
-        return TPPLOrientation.PPLOrientationNone;
+            return TOrientation.Clockwise;
+        return TOrientation.Collinear;
     }
     /// <summary>
     /// Function <c>SetOrientation</c> sets the orientation of the points of the polygon.
     /// </summary>
     /// <param name="PPLOrientation"><c>PPLOrientation</c> is the orientation to be applied.</param>
-    public void SetOrientation(TPPLOrientation PPLOrientation)
+    public void SetOrientation(TOrientation Orientation)
     {
-        TPPLOrientation ActuralOrientation = GetOrientation();
-        if ((ActuralOrientation != TPPLOrientation.PPLOrientationNone) && (ActuralOrientation != PPLOrientation))
+        TOrientation ActuralOrientation = GetOrientation();
+        if ((ActuralOrientation != TOrientation.Collinear) && (ActuralOrientation != Orientation))
             Points.Reverse();
     }
     /// <summary>
@@ -432,9 +426,9 @@ public class TPPLPolygon : Object, ICloneable
     {
         FHole = AHole;
         if (FHole)
-            SetOrientation(TPPLOrientation.PPLOrientationClockwise);
+            SetOrientation(TOrientation.Clockwise);
         else
-            SetOrientation(TPPLOrientation.PPLOrientationCounterClockwise);
+            SetOrientation(TOrientation.CounterClockwise);
     }
     /// <summary>
     /// Property <c>Hole</c> gets or sets the orientation of points of the polygon, according to the needings.
@@ -1750,7 +1744,7 @@ public class TNavMesh : Object
                 );
             }
             // Append the mesh polygon to the navigation mesh.
-            Polygon.SetOrientation(TPPLOrientation.PPLOrientationCounterClockwise);
+            Polygon.SetOrientation(TOrientation.CounterClockwise);
             ProcessPolygonMesh(NavMeshSettings, MapDefinition, Mesh, MapSector);
         }
     }
@@ -1879,174 +1873,6 @@ public class TNavMesh : Object
             }
     }
     /// <summary>
-    /// Function <c>ProcessCoverZones</c> calculates the cover zones of the navmesh.
-    /// </summary>
-    /// <param name="NavMeshSettings"><c>NavMeshSettings</c> stores the settings of the process.</param>
-    /// <param name="MapDefinition"><c>MapDefinition</c> stores the map being processed.</param>
-    internal void ProcessCoverZones(TNavMeshSettings NavMeshSettings, TMapDefinition MapDefinition)
-    {
-        List<Double> InterceptDistances = new List<Double>();
-        List<TLine> InterceptLines = new List<TLine>();
-        List<Int32> InterceptPointsX = new List<Int32>();
-        List<Int32> InterceptPointsY = new List<Int32>();
-        //List<TPoint> InterceptPoints = new List<TPoint>();
-        foreach (TPolygon Polygon in FPolygons)
-        {
-            // Calculate the centroid of the polygon.
-            double CentroidX = 0;
-            double CentroidY = 0;
-            double Area = 0;
-            for (int I = 0; I < Polygon.LineCount; I++)
-            {
-                double X0 = Polygon.Lines[I].A.X;
-                double Y0 = Polygon.Lines[I].A.Y;
-                double X1 = Polygon.Lines[I].B.X;
-                double Y1 = Polygon.Lines[I].B.Y;
-                double A = X0 * Y1 - X1 * Y0;
-                Area += X0 * Y1 - X1 * Y0;
-                CentroidX += (X0 + X1) * A;
-                CentroidY += (Y0 + Y1) * A;
-            }
-            int CentroidXX = Convert.ToInt32(CentroidX / Area / 3);
-            int CentroidYY = Convert.ToInt32(CentroidY / Area / 3);
-            //TPoint Centroid = new TPoint(Convert.ToInt32(CentroidX / Area / 3), Convert.ToInt32(CentroidY / Area / 3));
-            for (int LineIndex = 0; LineIndex < Polygon.LineCount; LineIndex++)
-            {
-                TLine Line = Polygon.Lines[LineIndex];
-                // Ignore non-LINEDEF lines.
-                if (Line.MapLinedef < 0)
-                    continue;
-                TMapLinedef MapLinedef = MapDefinition.MapLinedef[Line.MapLinedef];
-                // Check if the line is candidate for cover segment.
-                bool LineCandidate = false;
-                if ((MapLinedef.SideFront < 0) || (MapLinedef.SideBack < 0))
-                    LineCandidate = true;
-                else
-                    if ((MapLinedef.SideFront >= 0) && (MapLinedef.SideBack >= 0))
-                {
-                    TMapSector MapSector1 = MapDefinition.MapSector[MapDefinition.MapSidedef[MapLinedef.SideFront].Sector];
-                    TMapSector MapSector2 = MapDefinition.MapSector[MapDefinition.MapSidedef[MapLinedef.SideBack].Sector];
-                    int LineOpening = Math.Min(MapSector1.HeightCeiling, MapSector2.HeightCeiling) - Math.Max(MapSector1.HeightFloor, MapSector2.HeightFloor);
-                    int FloorHeightDifference = Math.Abs(MapSector1.HeightFloor - MapSector2.HeightFloor);
-                    if ((LineOpening <= 0) || (FloorHeightDifference > (NavMeshSettings.ActorHeight / 2)))
-                        LineCandidate = true;
-                }
-                if ((LineCandidate) && (CentroidXX != Line.A.X) && (CentroidXX != Line.B.X) && (CentroidYY != Line.A.Y) && (CentroidYY != Line.B.Y))
-                {
-                    // Scan the line between the Centroid and the center of the line Line.
-                    bool Result = false;
-                    double LineMidPointX = (Line.A.X + Line.B.X) / 2;
-                    double LineMidPointY = (Line.A.Y + Line.B.Y) / 2;
-                    int LineMidPointXX = Convert.ToInt32(LineMidPointX);
-                    int LineMidPointYY = Convert.ToInt32(LineMidPointY);
-                    double DeltaX = CentroidX - LineMidPointX;
-                    double DeltaY = CentroidY - LineMidPointY;
-                    double StepX;
-                    double StepY;
-                    if (Math.Abs(DeltaX) < Math.Abs(DeltaY))
-                    {
-                        StepX = 256 * DeltaX / DeltaY;
-                        StepY = 256;
-                    }
-                    else
-                    {
-                        StepX = 256;
-                        StepY = 256 * DeltaY / DeltaX;
-                    }
-                    InterceptDistances.Clear();
-                    InterceptLines.Clear();
-                    InterceptPointsX.Clear();
-                    InterceptPointsY.Clear();
-                    int RayLineA = LineMidPointYY - CentroidYY;
-                    int RayLineB = CentroidXX - LineMidPointXX;
-                    int RayLineC = RayLineA * CentroidXX + RayLineB * CentroidYY;
-                    InterceptDistances.Add(Math.Sqrt((CentroidX - LineMidPointX) * (CentroidX - LineMidPointX) + (CentroidY - LineMidPointY) * (CentroidY - LineMidPointY)));
-                    InterceptLines.Add(Line);
-                    InterceptPointsX.Add(LineMidPointXX);
-                    InterceptPointsY.Add(LineMidPointYY);
-                    double PointX = LineMidPointX;
-                    double PointY = LineMidPointY;
-                    int PointXX = Convert.ToInt32(PointX);
-                    int PointYY = Convert.ToInt32(PointY);
-                    int CellX = ((PointXX + 32768) >> 8) - OffsetCellX;
-                    int CellY = ((PointYY + 32768) >> 8) - OffsetCellY;
-                    while ((CellX >= 0) && (CellX < NumCellX) && (CellY >= 0) && (CellY < NumCellY) && (InterceptLines.Count <= 3))
-                    {
-                        List<Int32> Cell = Cells![CellY, CellX];
-                        foreach (Int32 PolygonIndex in Cells![CellY, CellX])
-                        {
-                            TPolygon TestPolygon = Polygons[PolygonIndex];
-                            foreach (TLine TestLine in TestPolygon.Lines)
-                            {
-                                int TestLineA = TestLine.A.Y - TestLine.B.Y;
-                                int TestLineB = TestLine.B.X - TestLine.A.X;
-                                int TestLineC = TestLineA * TestLine.A.X + TestLineB * TestLine.A.Y;
-                                int Determinant = RayLineA * TestLineB - TestLineA * RayLineB;
-                                if (Determinant != 0)
-                                {
-                                    // Line TestLine is not parallel to Centroid - Mid point of Line.
-                                    double IntersectionX = (RayLineC * TestLineB - TestLineC * RayLineB) / Determinant;
-                                    double IntersectionY = (RayLineA * TestLineC - TestLineA * RayLineC) / Determinant;
-                                    if ((IntersectionX >= Math.Min(TestLine.A.X, TestLine.B.X)) && (IntersectionX <= Math.Max(TestLine.A.X, TestLine.B.X)) && (IntersectionY >= Math.Min(TestLine.A.Y, TestLine.B.Y)) && (IntersectionY <= Math.Max(TestLine.A.Y, TestLine.B.Y)))
-                                    {
-                                        InterceptDistances.Add(Math.Sqrt((CentroidX - IntersectionX) * (CentroidX - IntersectionX) + (CentroidY - IntersectionY) * (CentroidY - IntersectionY)));
-                                        InterceptLines.Add(TestLine);
-                                        InterceptPointsX.Add(Convert.ToInt32(IntersectionX));
-                                        InterceptPointsY.Add(Convert.ToInt32(IntersectionY));
-                                    }
-                                }
-                            }
-                        }
-                        PointX += StepX;
-                        PointY += StepY;
-                        PointXX = Convert.ToInt32(PointX);
-                        PointYY = Convert.ToInt32(PointY);
-                        CellX = ((PointXX + 32768) >> 8) - OffsetCellX;
-                        CellY = ((PointYY + 32768) >> 8) - OffsetCellY;
-                    }
-                    if (InterceptDistances.Count > 1)
-                    {
-                        for (int I = 0; I < InterceptDistances.Count - 2; I++)
-                            for (int J = I + 1; J < InterceptDistances.Count - 1; J++)
-                                if (InterceptDistances[I] > InterceptDistances[J])
-                                {
-                                    (InterceptDistances[J], InterceptDistances[I]) = (InterceptDistances[I], InterceptDistances[J]);
-                                    (InterceptLines[J], InterceptLines[I]) = (InterceptLines[I], InterceptLines[J]);
-                                    (InterceptPointsX[J], InterceptPointsX[I]) = (InterceptPointsX[I], InterceptPointsX[J]);
-                                    (InterceptPointsY[J], InterceptPointsY[I]) = (InterceptPointsY[I], InterceptPointsY[J]);
-                                }
-                        TPoint MidPoint = new TPoint(0, 0);
-                        int K = 0;
-                        while ((!Result) && (K < InterceptDistances.Count - 1))
-                        {
-                            MidPoint.X = (InterceptPointsX[K] + InterceptPointsX[K + 1]) / 2;
-                            MidPoint.Y = (InterceptPointsY[K] + InterceptPointsY[K + 1]) / 2;
-                            int MidCellX = ((MidPoint.X + 32768) >> 8) - OffsetCellX;
-                            int MidCellY = ((MidPoint.Y + 32768) >> 8) - OffsetCellY;
-                            if ((MidCellX >= 0) && (MidCellX < NumCellX) && (MidCellY >= 0) && (MidCellY < NumCellY))
-                            {
-                                List<Int32> MidPointCell = Cells![MidCellY, MidCellX];
-                                for (int J = 0; J < MidPointCell.Count; J++)
-                                {
-                                    int Index = MidPointCell[J];
-                                    if (PointInsidePolygon(Polygons[Index], MidPoint))
-                                    {
-                                        Result = true;
-                                        break;
-                                    }
-                                }
-                            }
-                            K++;
-                        }
-                    }
-                    if (Result)
-                        Polygon.BlockingLines.Add(LineIndex);
-                    //Polygon.BlockingLines.Add(LineIndex); // Forces the creation of the cover zone!
-                }
-            }
-        }
-    }
-    /// <summary>
     /// Function <c>Build</c> produces a NavMesh with the specified map and settings.
     /// </summary>
     /// <param name="NavMeshSettings"><c>NavMeshSettings</c> stores the settings of the process.</param>
@@ -2064,7 +1890,6 @@ public class TNavMesh : Object
         {
             ProcessTeleporters(MapDefinition);
             ProcessCells();
-            ProcessCoverZones(NavMeshSettings, MapDefinition);
         }
     }
     /// <summary>
@@ -2095,16 +1920,6 @@ public class TNavMesh : Object
                         SB.AppendFormat(" {0}", PolygonIndex);
                     SB.AppendLine();
                 }
-        SB.AppendLine();
-        SB.AppendLine("# cover zones");
-        for (int I = 0; I < Polygons.Count; I++)
-            if (Polygons[I].BlockingLines.Count > 0)
-            {
-                SB.AppendFormat("b {0}", I);
-                foreach (Int32 LineIndex in Polygons[I].BlockingLines)
-                    SB.AppendFormat(" {0}", LineIndex);
-                SB.AppendLine();
-            }
         return SB.ToString();
     }
 }
