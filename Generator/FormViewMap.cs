@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Drawing;
 using System.Windows.Forms;
 
@@ -115,7 +115,7 @@ public partial class FormViewMap : Form
     {
         PictureBoxMap.Invalidate();
     }
-    private void PictureBoxMap_MouseMove(object Sender, MouseEventArgs E) 
+    private void PictureBoxMap_MouseMove(object Sender, MouseEventArgs E)
     {
         PictureBoxMap.Invalidate();
     }
@@ -130,17 +130,16 @@ public partial class FormViewMap : Form
             return;
         Pen BluePen = new Pen(Color.Blue);
         Pen GrayPen = new Pen(Color.Gray);
-        Pen GreenPen = new Pen(Color.Green, 3);
         Pen RedPen = new Pen(Color.Red);
         Pen WhitePen = new Pen(Color.White);
-        Pen YellowPen = new Pen(Color.Yellow, 3);
         // Line clipping, by Cohen–Sutherland Algorithm.
         const int INSIDE = 0b0000;
         const int LEFT = 0b0001;
         const int RIGHT = 0b0010;
         const int BOTTOM = 0b0100;
         const int TOP = 0b1000;
-        Func<int, int, int> ComputeRC = (X, Y) => {
+        Func<int, int, int> ComputeRC = (X, Y) =>
+        {
             int Result = INSIDE;
             if (X < ViewMinX)
                 Result |= LEFT;
@@ -190,25 +189,22 @@ public partial class FormViewMap : Form
                             X = X1 + (X2 - X1) * (ViewMaxY - Y1) / (Y2 - Y1);
                             Y = ViewMaxY;
                         }
-                        else
-                            if ((RC & BOTTOM) != 0)
+                        else if ((RC & BOTTOM) != 0)
                         {
                             // Point is below the screen port.
                             X = X1 + (X2 - X1) * (ViewMaxY - Y1) / (Y2 - Y1);
                             Y = ViewMinY;
                         }
-                        else
-                                if ((RC & RIGHT) != 0)
+                        else if ((RC & RIGHT) != 0)
                         {
                             // Point is to the right of the screen port.
-                            Y = Y1 + (Y2 - X1) * (ViewMaxY - X1) / (X2 - X1);
+                            Y = Y1 + (Y2 - X1) * (ViewMaxX - X1) / (X2 - X1);
                             X = ViewMaxX;
                         }
-                        else
-                                    if ((RC & LEFT) != 0)
+                        else if ((RC & LEFT) != 0)
                         {
                             // Point is to the left of the screen port.
-                            Y = Y1 + (X2 - X1) * (ViewMinY - X1) / (X2 - X1);
+                            Y = Y1 + (X2 - X1) * (ViewMinX - X1) / (X2 - X1);
                             X = ViewMinX;
                         }
                         else
@@ -263,66 +259,6 @@ public partial class FormViewMap : Form
                         E.Graphics.DrawLine(BluePen, V1X, V1Y, V2X, V2Y);
                     else
                         E.Graphics.DrawLine(RedPen, V1X, V1Y, V2X, V2Y);
-                }
-            }
-            int MouseX = PictureBoxMap.PointToClient(Cursor.Position).X;
-            int MouseY = PictureBoxMap.PointToClient(Cursor.Position).Y;
-            int PointX = (MouseX << ZoomFactor) + PosX - 32768;
-            int PointY = (-(MouseY << ZoomFactor) + PosY - 32768) + ((32768 - PosY) << 1);
-            TPoint Point = new TPoint(PointX, PointY);
-            int CellX = ((Point.X + 32768) >> 8) - NavMesh.OffsetCellX;
-            int CellY = ((Point.Y + 32768) >> 8) - NavMesh.OffsetCellY;
-            bool NotFound = true;
-            int PolygonIndex = 0;
-            if ((CellX >= 0) && (CellX < NavMesh.FNumCellX) && (CellY >= 0) && (CellY < NavMesh.FNumCellY))
-            {
-                int I = 0;
-                while ((NotFound) && (I < NavMesh.Cells![CellY, CellX].Count)) 
-                {
-                    bool PointInsidePolygon = false;
-                    PolygonIndex = NavMesh.Cells[CellY, CellX][I];
-                    TPoint Point1 = NavMesh.Polygons[PolygonIndex].Lines[0].A;
-                    foreach (TLine Line in NavMesh.Polygons[PolygonIndex].Lines)
-                    {
-                        TPoint Point2 = Line.B;
-                        if (Point.Y > Math.Min(Point1.Y, Point2.Y))
-                            if (Point.Y <= Math.Max(Point1.Y, Point2.Y))
-                                if (Point.X <= Math.Max(Point1.X, Point2.X))
-                                {
-                                    double IntersectionX = (Point.Y - Point1.Y) * (Point2.X - Point1.X) / (Point2.Y - Point1.Y) + Point1.X;
-                                    if ((Point1.X == Point2.X) || (Point.X <= IntersectionX))
-                                        PointInsidePolygon = !PointInsidePolygon;
-                                }
-                        Point1 = Point2;
-                    }
-                    if (PointInsidePolygon)
-                        NotFound = false;
-                    else
-                        I++;
-                }
-            }
-            if (!NotFound)
-            {
-                TPolygon Polygon = NavMesh.Polygons[PolygonIndex];
-                for (int LineIndex = 0; LineIndex < Polygon.Lines.Count; LineIndex++) 
-                {
-                    TLine Line = Polygon.Lines[LineIndex];
-                    int V1X = (Line.A.X - PosX + 32768) >> ZoomFactor;
-                    int V1Y = ((-Line.A.Y) - PosY + 32768) >> ZoomFactor;
-                    int V2X = (Line.B.X - PosX + 32768) >> ZoomFactor;
-                    int V2Y = ((-Line.B.Y) - PosY + 32768) >> ZoomFactor;
-                    if (
-                        ((V1X >= ViewMinX) && (V1X <= ViewMaxX) && (V1Y >= ViewMinY) && (V1Y <= ViewMaxY))
-                        || ((V2X >= ViewMinX) && (V2X <= ViewMaxX) && (V2Y >= ViewMinY) && (V2Y <= ViewMaxY))
-                        || ((V1X < ViewMinX) && (V2X > ViewMaxX) && (V1Y >= ViewMinY) && (V2Y <= ViewMaxY))
-                        || ((V1X >= ViewMinX) && (V2X <= ViewMaxX) && (V1Y < ViewMinY) && (V2Y > ViewMaxY))
-                    )
-                    {
-                        if (Polygon.BlockingLines.Contains(LineIndex))
-                            E.Graphics.DrawLine(YellowPen, V1X, V1Y, V2X, V2Y);
-                        else
-                            E.Graphics.DrawLine(GreenPen, V1X, V1Y, V2X, V2Y);
-                    }
                 }
             }
         }
