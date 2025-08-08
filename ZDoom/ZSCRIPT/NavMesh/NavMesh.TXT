@@ -143,11 +143,7 @@ class TNavMesh : TCustomNavMesh
 	int CellNumY;
 	Array<Int> Cells;
 	Array<Int> CellsIndex;
-	// Cover zones.
-	Array<Int> CoverLines;
-	Array<Int> CoverLinesIndex;
 	int SearchPolygons[64];
-	int BlockingLines[8];
 	// Node list.
 	Array<TNavNode> NavNodes;
 	// Checks if a point is inside a convex polygon.
@@ -348,8 +344,6 @@ class TNavMesh : TCustomNavMesh
 		// Parse the source code.
 		int CurrentCell = 0;
 		int CurrentCellIndex = 0;
-		int CurrentCoverLine = 0;
-		int CurrentCoverLineIndex = 0;
 		TNavMeshReader NavMeshLexer = TNavMeshReader.Create(SourceCode);
 		TNavMesh Result = New('TNavMesh');
 		while (!NavMeshLexer.EOF())
@@ -411,9 +405,6 @@ class TNavMesh : TCustomNavMesh
 		}
 		// Add last cell index.
 		Result.CellsIndex.Push(CurrentCell);
-		// Add last cover zone index.
-		for (int I = Result.CoverLinesIndex.Size(); I <= Result.NavPolygons.Size(); I++)
-			Result.CoverLinesIndex.Push(CurrentCoverLine);
 		// Build the node list.
 		for (int I = 0; I < Result.NavPolygons.Size(); I++)
 		{
