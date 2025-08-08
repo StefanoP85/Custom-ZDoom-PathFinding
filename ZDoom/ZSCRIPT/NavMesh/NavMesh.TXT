@@ -408,24 +408,6 @@ class TNavMesh : TCustomNavMesh
 					NextToken = NavMeshLexer.PeekNextToken().Left(1);
 				}
 			}
-			// Cover zones command.
-			if (Token ~== "B")
-			{
-				int PolygonNumber = NavMeshLexer.GetNextToken().ToInt();
-				// Cells indexes management.
-				while (CurrentCoverLineIndex <= PolygonNumber)
-				{
-					Result.CoverLinesIndex.Push(CurrentCoverLine);
-					CurrentCoverLineIndex++;
-				}
-				String NextToken = NavMeshLexer.PeekNextToken().Left(1);
-				while ((NextToken >= "0") && (NextToken <= "9"))
-				{
-					Result.CoverLines.Push(NavMeshLexer.GetNextToken().ToInt());
-					CurrentCoverLine++;
-					NextToken = NavMeshLexer.PeekNextToken().Left(1);
-				}
-			}
 		}
 		// Add last cell index.
 		Result.CellsIndex.Push(CurrentCell);
