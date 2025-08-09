@@ -112,7 +112,7 @@ class TPolygon:
 
 # Class TPPLPoint represents A Point in 2D Euclidean space, but with floating Point arithmetic.
 class TPPLPoint:
-	def __init__(self, X=0, Y=0):
+	def __init__(self, X = 0, Y = 0):
 		self.X = X
 		self.Y = Y
 
@@ -167,23 +167,23 @@ class TPPLPolygon:
 			i2 = (i1 + 1) % len(self.Points)
 			Area += self.Points[i1].X * self.Points[i2].Y - self.Points[i1].Y * self.Points[i2].X
 		if Area > 0:
-			return "CounterClockwise"
+			return TOrientation.CounterClockwise
 		elif Area < 0:
-			return "Clockwise"
+			return TOrientation.Clockwise
 		else:
-			return "None"
+			return TOrientation.Collinear
 
-	def SetOrientation(self, PPLOrientation):
+	def SetOrientation(self, Orientation):
 		ActualOrientation = self.GetOrientation()
-		if ActualOrientation != "None" and ActualOrientation != PPLOrientation:
+		if ActualOrientation != TOrientation.Collinear and ActualOrientation != Orientation:
 			self.Points.reverse()
 
 	def SetHole(self, AHole):
 		self.FHole = AHole
 		if self.FHole:
-			self.SetOrientation("Clockwise")
+			self.SetOrientation(TOrientation.Clockwise)
 		else:
-			self.SetOrientation("CounterClockwise")
+			self.SetOrientation(TOrientation.CounterClockwise)
 
 	@property
 	def Hole(self):
@@ -242,8 +242,7 @@ class TPPLPartition:
 			return False
 
 	def Intersects(self, P11, P12, P21, P22):
-		if (P11.X == P21.X and P11.Y == P21.Y) or (P11.X == P22.X and P11.Y == P22.Y) or \
-			 (P12.X == P21.X and P12.Y == P21.Y) or (P12.X == P22.X and P12.Y == P22.Y):
+		if (P11.X == P21.X and P11.Y == P21.Y) or (P11.X == P22.X and P11.Y == P22.Y) or (P12.X == P21.X and P12.Y == P21.Y) or (P12.X == P22.X and P12.Y == P22.Y):
 			return False
 		V1Ort = TPPLPoint()
 		V2Ort = TPPLPoint()
@@ -284,9 +283,7 @@ class TPPLPartition:
 		if Vertex.IsConvex:
 			Vertex.IsEar = True
 			for I in range(NumVertices):
-				if (Vertices[I].Point.X == Vertex.Point.X and Vertices[I].Point.Y == Vertex.Point.Y) or \
-					 (Vertices[I].Point.X == V1.Point.X and Vertices[I].Point.Y == V1.Point.Y) or \
-					 (Vertices[I].Point.X == V3.Point.X and Vertices[I].Point.Y == V3.Point.Y):
+				if (Vertices[I].Point.X == Vertex.Point.X and Vertices[I].Point.Y == Vertex.Point.Y) or (Vertices[I].Point.X == V1.Point.X and Vertices[I].Point.Y == V1.Point.Y) or (Vertices[I].Point.X == V3.Point.X and Vertices[I].Point.Y == V3.Point.Y):
 					continue
 				if self.IsInside(V1.Point, Vertex.Point, V3.Point, Vertices[I].Point):
 					Vertex.IsEar = False
@@ -587,7 +584,7 @@ class TNavMesh:
 		if CrossProduct == 0:
 			return TOrientation.Collinear
 		elif CrossProduct < 0:
-			return TOrientation.counterClockwise
+			return TOrientation.CounterClockwise
 		else:
 			return TOrientation.Clockwise
 
