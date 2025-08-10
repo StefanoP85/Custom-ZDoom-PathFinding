@@ -17,7 +17,7 @@ public enum TOrientation
 {
     Clockwise = -1,
     Collinear = 0,
-    CounterClockwise = 1,
+    CounterClockwise = 1
 }
 /// <summary>
 /// Class <c>TPoint</c> represents a simple point in 2D Euclidean space.
@@ -168,10 +168,6 @@ public class TPolygon : Object
     /// </summary>
     public int MapSector;
     /// <summary>
-    /// Variable <c>BlockingLines</c> is the list of blocking lines, that are used by the cover map.
-    /// </summary>
-    public List<Int32> BlockingLines;
-    /// <summary>
     /// Constructor <c>TPolygon</c> is the index of the map SECTOR.
     /// </summary>
     public TPolygon() : base()
@@ -181,7 +177,6 @@ public class TPolygon : Object
         LineCount = 0;
         Flags = 0;
         MapSector = -1;
-        BlockingLines = new List<Int32>();
     }
     /// <summary>
     /// Function <c>AddLine</c> adds a line of the polygon.
@@ -248,12 +243,6 @@ public class TPolygon : Object
         }
     }
 }
-/// <summary>
-/// Enum <c>TPPLOrientation</c> represents the possible orientations of a polygon.
-/// </summary>
-/// <remarks>
-/// TPPLOrientation looks very similar to TOrientation, but with reversed values.
-/// </remarks>
 /// <summary>
 /// Class <c>TPPLPoint</c> represents a point in 2D Euclidean space, but with floating point arithmetic.
 /// </summary>
@@ -328,8 +317,8 @@ public class TPPLPoint : Object, ICloneable
 /// <summary>
 /// Class <c>TPPLPolygon</c> represents a polygon in 2D Euclidean space, but with floating point arithmetic.
 /// It also sorts the points in clockwise or counterclockwise order, with the following rule:
-/// If the polygon represents a valid polygon: counterclockwise order is used
-/// If the polygon represents a hole: clockwise order is used
+/// If the polygon represents a valid polygon: counterclockwise order is used.
+/// If the polygon represents a hole: clockwise order is used.
 /// </summary>
 public class TPPLPolygon : Object, ICloneable
 {
