@@ -582,120 +582,88 @@ internal static class TPPLPartition : Object
     /// Function <c>RemoveHoles</c> is a simple heuristic procedure for removing holes from a list of polygons.
     /// It works by creating a diagonal from the right-most hole  to some other visible vertex.
     /// </summary>
-    /// <param name="InputPolygons"><c>InputPolygons</c> is a list of polygons that can contain holes.<br/>
-    /// Vertices of all non-hole polys have to be in counter-clockwise order.<br/>
-    /// Vertices of all hole polys have to be in clockwise order.</param>
-    /// <param name="OutputPolygons"><c>OutputPolygons</c> is a list of polygons without holes.</param>
+    /// <param name="PolygonGroup"><c>PolygonGroup</c> is a closed part of a SECTOR.<br/>
+    /// <param name="OutputPolygons"><c>OutputPolygons</c> is a list, with a single polygon, representing the result.</param>
     /// <returns>True if the process is successful.</returns>
-    internal static bool RemoveHoles(List<TPPLPolygon> InputPolygons, List<TPPLPolygon> OutputPolygons)
+    internal static bool RemoveHoles(TPolygonGroup PolygonGroup, List<TPPLPolygon> OutputPolygons)
     {
-        TPPLPolygon? Hole = null;
-        TPPLPolygon? Poly = null;
-        TPPLPoint? BestPolyPoint = null;
-        int J, HolePointIndex = 0, PolyPointIndex = 0;
-        // Check for the trivial case of no holes
-        bool HasHoles = false;
-        foreach (TPPLPolygon Polygon in InputPolygons)
-            if (Polygon.Hole)
-            {
-                HasHoles = true;
-                break;
-            }
-        if (!HasHoles)
+        TPPLPolygon Polygon = new TPPLPolygon();
+        foreach (TLine Line in PolygonGroup.Polygon.Lines)
+            Polygon.AddPoint(new TPPLPoint(Line.A.X, Line.A.Y));
+        Polygon.Hole = false;
+        // Check for the trivial case of no holes.
+        if (PolygonGroup.Holes.Count == 0)
         {
-            foreach (TPPLPolygon Polygon in InputPolygons)
-                OutputPolygons.Add(Polygon);
+            OutputPolygons.Add(Polygon);
             return true;
         }
-        List<TPPLPolygon> Polygons = new List<TPPLPolygon>(InputPolygons.Count);
-        InputPolygons.ForEach((Polygon) => Polygons.Add((TPPLPolygon)Polygon.Clone()));
-        while (true)
+        List<TPPLPolygon> Holes = new List<TPPLPolygon>();
+        foreach (TPolygon PolygonHole in PolygonGroup.Holes)
         {
-            // Find the hole point with the largest x
-            HasHoles = false;
-            foreach (TPPLPolygon Polygon in Polygons)
+            TPPLPolygon Hole = new TPPLPolygon();
+            foreach (TLine Line in PolygonHole.Lines)
+                Hole.AddPoint(new TPPLPoint(Line.A.X, Line.A.Y));
+            Hole.Hole = true;
+            Holes.Add(Hole);
+        }
+        while (Holes.Count > 0)
+        {
+            // Find the hole point with the largest X.
+            TPPLPolygon SelectedHole = Holes[0];
+            int HolePointIndex = 0;
+            int PolyPointIndex = 0;
+            foreach (TPPLPolygon Hole in Holes)
             {
-                if (!Polygon.Hole)
-                    continue;
-                if (!HasHoles)
-                {
-                    HasHoles = true;
-                    Hole = Polygon;
-                    HolePointIndex = 0;
-                }
-                for (int I = 0; I < Polygon.Points.Count; I++)
-                {
-                    if (Polygon.Points[I].X > Hole!.Points[HolePointIndex].X)
+                for (int I = 0; I < Hole.Points.Count; I++)
+                    if (Hole.Points[I].X > SelectedHole.Points[HolePointIndex].X)
                     {
-                        Hole = Polygon;
+                        SelectedHole = Hole;
                         HolePointIndex = I;
                     }
-                }
             }
-            if (!HasHoles)
-                break;
-            TPPLPoint HolePoint = Hole!.Points[HolePointIndex];
+            TPPLPoint HolePoint = SelectedHole.Points[HolePointIndex];
             bool PointFound = false;
-            foreach (TPPLPolygon Polygon1 in Polygons)
+            TPPLPoint BestPolyPoint = Polygon.Points[0];
+            for (int I = 0; I < Polygon.Points.Count; I++)
             {
-                if (Polygon1.Hole)
+                if (Polygon.Points[I].X <= HolePoint.X)
                     continue;
-                for (int I = 0; I < Polygon1.Points.Count; I++)
+                if (!InCone(Polygon.Points[(I + Polygon.Points.Count - 1) % (Polygon.Points.Count)], Polygon.Points[I], Polygon.Points[(I + 1) % (Polygon.Points.Count)], HolePoint))
+                    continue;
+                TPPLPoint PolyPoint = Polygon.Points[I];
+                if (PointFound)
                 {
-                    if (Polygon1.Points[I].X <= HolePoint.X)
+                    TPPLPoint V1 = Normalize(PolyPoint - HolePoint);
+                    TPPLPoint V2 = Normalize(BestPolyPoint - HolePoint);
+                    if (V2.X > V1.X)
                         continue;
-                    if (!InCone(Polygon1.Points[(I + Polygon1.Points.Count - 1) % (Polygon1.Points.Count)], Polygon1.Points[I], Polygon1.Points[(I + 1) % (Polygon1.Points.Count)], HolePoint))
-                        continue;
-                    TPPLPoint PolyPoint = Polygon1.Points[I];
-                    if (PointFound)
+                }
+                bool PointVisible = true;
+                for (int J = 0; J < Polygon.Points.Count; J++)
+                {
+                    TPPLPoint LineP1 = Polygon.Points[J];
+                    TPPLPoint LineP2 = Polygon.Points[(J + 1) % (Polygon.Points.Count)];
+                    if (Intersects(HolePoint, PolyPoint, LineP1, LineP2))
                     {
-                        TPPLPoint V1 = Normalize(PolyPoint - HolePoint);
-                        TPPLPoint V2 = Normalize(BestPolyPoint! - HolePoint);
-                        if (V2.X > V1.X)
-                            continue;
+                        PointVisible = false;
+                        break;
                     }
-                    bool PointVisible = true;
-                    foreach (TPPLPolygon Polygon2 in Polygons)
-                    {
-                        if (Polygon2.Hole)
-                            continue;
-                        for (J = 0; J < Polygon2.Points.Count; J++)
-                        {
-                            TPPLPoint LineP1 = Polygon2.Points[J];
-                            TPPLPoint LineP2 = Polygon2.Points[(J + 1) % (Polygon2.Points.Count)];
-                            if (Intersects(HolePoint, PolyPoint, LineP1, LineP2))
-                            {
-                                PointVisible = false;
-                                break;
-                            }
-                        }
-                        if (!PointVisible)
-                            break;
-                    }
-                    if (PointVisible)
-                    {
-                        PointFound = true;
-                        BestPolyPoint = PolyPoint;
-                        Poly = Polygon1;
-                        PolyPointIndex = I;
-                    }
+                }
+                if (PointVisible)
+                {
+                    PointFound = true;
+                    BestPolyPoint = PolyPoint;
+                    PolyPointIndex = I;
                 }
             }
             if (!PointFound)
                 return false;
-            TPPLPolygon NewPoly = new TPPLPolygon();
-            for (int I = 0; I <= PolyPointIndex; I++)
-                NewPoly.AddPoint(Poly!.Points[I]);
-            for (int I = 0; I <= Hole.Points.Count; I++)
-                NewPoly.AddPoint(Hole.Points[(I + HolePointIndex) % Hole.Points.Count]);
-            for (int I = PolyPointIndex; I < Poly!.Points.Count; I++)
-                NewPoly.AddPoint(Poly.Points[I]);
-            Polygons.Remove(Hole);
-            Polygons.Remove(Poly);
-            Polygons.Add(NewPoly);
+            for (int I = 0; I <= SelectedHole.Points.Count; I++)
+                Polygon.Points.Insert(PolyPointIndex + I + 1, SelectedHole.Points[(I + HolePointIndex) % SelectedHole.Points.Count]);
+            Polygon.Points.Insert(PolyPointIndex + SelectedHole.Points.Count + 2, Polygon.Points[PolyPointIndex]);
+            Holes.Remove(SelectedHole);
         }
-        foreach (TPPLPolygon Polygon in Polygons)
-            OutputPolygons.Add(Polygon);
+        OutputPolygons.Add(Polygon);
         return true;
     }
     /// <summary>
@@ -716,7 +684,7 @@ internal static class TPPLPartition : Object
         }
         int NumVertices = InputPolygon.Points.Count;
         TPartitionVertex[] Vertices = new TPartitionVertex[NumVertices];
-        TPartitionVertex? Ear = null;
+        TPartitionVertex Ear = Vertices[0];
         for (int I = 0; I < NumVertices; I++)
             Vertices[I] = new TPartitionVertex(InputPolygon.Points[I]);
         for (int I = 0; I < NumVertices; I++)
@@ -750,13 +718,13 @@ internal static class TPPLPartition : Object
                 }
                 else
                 {
-                    if (Vertices[J].Angle > Ear!.Angle)
+                    if (Vertices[J].Angle > Ear.Angle)
                         Ear = Vertices[J];
                 }
             }
             if (!EarFound)
                 return false;
-            TPPLPolygon Triangle = new TPPLPolygon(Ear!.Previous.Point, Ear!.Point, Ear!.Next.Point);
+            TPPLPolygon Triangle = new TPPLPolygon(Ear.Previous.Point, Ear.Point, Ear.Next.Point);
             OutputPolygons.Add(Triangle);
             Ear.IsActive = false;
             Ear.Previous.Next = Ear.Next;
@@ -773,25 +741,6 @@ internal static class TPPLPartition : Object
                 OutputPolygons.Add(Triangle);
                 break;
             }
-        return true;
-    }
-    /// <summary>
-    /// Function <c>Triangulate_EC</c> triangulates a list of polygons that may contain holes by ear clipping
-    /// algorithm. It first calls RemoveHoles to get rid of the holes, and then calls Triangulate_EC for each resulting polygon.
-    /// </summary>
-    /// <param name="InputPolygons"><c>InputPolygons</c> is a list of polygons to be triangulated (can contain holes).<br />
-    /// Vertices of all non-hole polys have to be in counter-clockwise order.<br />
-    /// Vertices of all hole polys have to be in clockwise order.</param>
-    /// <param name="OutputPolygons"><c>OutputPolygons</c> is a list of triangles.</param>
-    /// <returns>True if the process is successful.</returns>
-    internal static bool Triangulate_EC(List<TPPLPolygon> InputPolygons, List<TPPLPolygon> OutputPolygons)
-    {
-        List<TPPLPolygon> Polygons = new List<TPPLPolygon>();
-        if (!RemoveHoles(InputPolygons, Polygons))
-            return false;
-        foreach (TPPLPolygon Polygon in Polygons)
-            if (!Triangulate_EC(Polygon, OutputPolygons))
-                return false;
         return true;
     }
     /// <summary>
@@ -855,17 +804,16 @@ internal static class TPPLPartition : Object
                         for (I21 = 0; I21 < Polygon2.Points.Count; I21++)
                         {
                             if ((D2.X != Polygon2.Points[I21].X) || (D2.Y != Polygon2.Points[I21].Y))
-                                goto ExitWhile;
+                                continue;
                             I22 = (I21 + 1) % (Polygon2.Points.Count);
                             if ((D1.X != Polygon2.Points[I22].X) || (D1.Y != Polygon2.Points[I22].Y))
-                                goto ExitWhile;
+                                continue;
                             IsDiagonal = true;
                             break;
                         }
                         if (IsDiagonal)
                             break;
                     }
-                    ExitWhile:
                     TriangleIndex2++;
                 }
                 if (!IsDiagonal)
@@ -911,27 +859,6 @@ internal static class TPPLPartition : Object
         }
         foreach (TPPLPolygon Polygon in Triangles)
             OutputPolygons.Add(Polygon);
-        return true;
-    }
-    /// <summary>
-    /// Function <c>ConvexPartition_HM</c> partitions a list of polygons into convex parts by using the
-    /// Hertel-Mehlhorn algorithm. The algorithm gives at most four times the number of parts as the optimal algorithm, 
-    /// however, in practice it works much better than that and often gives optimal partition.
-    /// It uses triangulation obtained by ear clipping as intermediate result.
-    /// </summary>
-    /// <param name="InputPolygons"><c>InputPolygons</c> is an input list of polygons to be partitioned.<br />
-    /// Vertices of all non-hole polys have to be in counter-clockwise order.<br />
-    /// Vertices of all hole polys have to be in clockwise order.</param>
-    /// <param name="OutputPolygons"><c>OutputPolygons</c> is a list of convex polygons.</param>
-    /// <returns>True if the process is successful.</returns>
-    internal static bool ConvexPartition_HM(List<TPPLPolygon> InputPolygons, List<TPPLPolygon> OutputPolygons)
-    {
-        List<TPPLPolygon> Polygons = new List<TPPLPolygon>();
-        if (!RemoveHoles(InputPolygons, Polygons))
-            return false;
-        foreach (TPPLPolygon Polygon in Polygons)
-            if (!ConvexPartition_HM(Polygon, OutputPolygons))
-                return false;
         return true;
     }
 }
@@ -1415,16 +1342,16 @@ public class TNavMesh : Object
     /// </summary>
     /// <param name="Sector"><c>Sector</c> is the map's SECTOR to split into a list of SectorGroup.</param>
     /// <returns>A list of <c>TPolygonGroup</c>, each one represents a closed region, that can contain holes.</returns>
-    internal List<TPolygonGroup>? GetPolygonGroups(TMapDefinition MapDefinition, TPolygon Sector)
+    internal List<TPolygonGroup>? GetPolygonGroups(TMapDefinition MapDefinition, List<TLine> Lines)
     {
         // If the SECTOR has less than 3 LINEDEF, then it's scrapped.
-        if (Sector.Lines.Count < 3)
+        if (Lines.Count < 3)
             return null;
-        List<TPolygonGroup> SectorPolygons = new List<TPolygonGroup>();
+        List<TPolygonGroup> PolygonGroups = new List<TPolygonGroup>();
         // Split the closed regions of the SECTOR.
-        List<TPolygon> Sectors = new List<TPolygon>();
-        List<Boolean> CheckedLine = new List<Boolean>(Sector.Lines.Count);
-        for (int I = 0; I < Sector.Lines.Count; I++)
+        List<TPolygon> Polygons = new List<TPolygon>();
+        List<Boolean> CheckedLine = new List<Boolean>(Lines.Count);
+        for (int I = 0; I < Lines.Count; I++)
             CheckedLine.Add(false);
         do
         {
@@ -1432,21 +1359,18 @@ public class TNavMesh : Object
             if (FirstLine >= 0)
             {
                 TPolygon Polygon = new TPolygon();
-                Polygon.HeightFloor = Sector.HeightFloor;
-                Polygon.HeightCeiling = Sector.HeightCeiling;
-                Polygon.MapSector = Sector.MapSector;
-                Polygon.AddLine(Sector.Lines[FirstLine]);
+                Polygon.AddLine(Lines[FirstLine]);
                 CheckedLine[FirstLine] = true;
                 int CurrentLine = FirstLine;
                 int NextLine;
                 do
                 {
-                    NextLine = Sector.Lines.FindIndex((Line) => Line.A == Sector.Lines[CurrentLine].B);
+                    NextLine = Lines.FindIndex((Line) => Line.A == Lines[CurrentLine].B);
                     if ((NextLine >= 0) && (CheckedLine[NextLine]))
                         break;
                     if ((NextLine >= 0) && (NextLine != FirstLine))
                     {
-                        Polygon.AddLine(Sector.Lines[NextLine]);
+                        Polygon.AddLine(Lines[NextLine]);
                         CheckedLine[NextLine] = true;
                         CurrentLine = NextLine;
                     }
@@ -1454,55 +1378,43 @@ public class TNavMesh : Object
                 if (Polygon.IsClosed())
                 {
                     Polygon.SortLines();
-                    Sectors.Add(Polygon);
+                    Polygons.Add(Polygon);
                 }
             }
         } while (!CheckedLine.All((Line) => Line == true));
-        if (Sectors.Count == 0)
+        if (Polygons.Count == 0)
             return null;
-        if (Sectors.Count == 1)
+        if (Polygons.Count == 1)
         {
             // Only one closed region.
-            TPolygonGroup SectorPolygon = new TPolygonGroup(Sectors[0]);
-            SectorPolygons.Add(SectorPolygon);
+            TPolygonGroup PolygonGroup = new TPolygonGroup(Polygons[0]);
+            PolygonGroups.Add(PolygonGroup);
         }
         else
         {
             // Multiple closed regions.
             // Check the holes and nested regions / holes.
-            int[] PolygonDepthLevel = new int[Sectors.Count];
-            for (int I = 0; I < Sectors.Count; I++)
+            int[] PolygonDepthLevel = new int[Polygons.Count];
+            for (int I = 0; I < Polygons.Count; I++)
                 PolygonDepthLevel[I] = 0;
-            for (int I = 0; I < Sectors.Count; I++)
-                for (int J = 0; J < Sectors.Count; J++)
+            for (int I = 0; I < Polygons.Count; I++)
+                for (int J = 0; J < Polygons.Count; J++)
                     if (I != J)
-                        if (PolygonInsidePolygon(Sectors[I], Sectors[J]))
+                        if (PolygonInsidePolygon(Polygons[I], Polygons[J]))
                             PolygonDepthLevel[J]++;
             int MaxDepthLevel = PolygonDepthLevel.Max();
             for (int DepthLevel = 0; DepthLevel <= MaxDepthLevel; DepthLevel += 2)
-                for (int I = 0; I < Sectors.Count; I++)
+                for (int I = 0; I < Polygons.Count; I++)
                     if (PolygonDepthLevel[I] == DepthLevel)
                     {
-                        TPolygonGroup SectorPolygon = new TPolygonGroup(Sectors[I]);
-                        for (int J = 0; J < Sectors.Count; J++)
-                            if ((I != J) && (PolygonInsidePolygon(Sectors[I], Sectors[J])))
-                            {
-                                bool IgnoreHole = false;
-                                TMapLinedef FirstHoleLinedef = MapDefinition.MapLinedef[Sectors[J].Lines[0].MapLinedef];
-                                if ((FirstHoleLinedef.SideFront >= 0) && (FirstHoleLinedef.SideBack >= 0))
-                                {
-                                    int HoleSector = MapDefinition.MapSidedef[FirstHoleLinedef.SideFront].Sector;
-                                    if (HoleSector == Sector.MapSector)
-                                        HoleSector = MapDefinition.MapSidedef[FirstHoleLinedef.SideBack].Sector;
-                                    IgnoreHole = MapDefinition.MapSector[HoleSector].Ignored;
-                                }
-                                if (!IgnoreHole)
-                                    SectorPolygon.Holes.Add(Sectors[J]);
-                            }
-                        SectorPolygons.Add(SectorPolygon);
+                        TPolygonGroup PolygonGroup = new TPolygonGroup(Polygons[I]);
+                        for (int J = 0; J < Polygons.Count; J++)
+                            if ((I != J) && (PolygonInsidePolygon(Polygons[I], Polygons[J])))
+                                PolygonGroup.Holes.Add(Polygons[J]);
+                        PolygonGroups.Add(PolygonGroup);
                     }
         }
-        return SectorPolygons;
+        return PolygonGroups;
     }
     /// <summary>
     /// Function <c>ProcessPolygonMesh</c> adds a mesh to the navigation mesh.
@@ -1746,11 +1658,11 @@ public class TNavMesh : Object
         List<TPolygonGroup>? PolygonGroups;
         List<TPPLPolygon> InputPolygons = new List<TPPLPolygon>();
         List<TPPLPolygon> OutputPolygons = new List<TPPLPolygon>();
+        List<TLine> Lines = new List<TLine>();
         foreach (TMapSector MapSector in MapDefinition.MapSector)
             if (!MapSector.Ignored)
             {
-                TPolygon SectorPolygon = new TPolygon();
-                SectorPolygon.MapSector = MapSector.Index;
+                Lines.Clear();
                 foreach (TMapLinedef MapLinedef in MapDefinition.MapLinedef)
                     if ((MapLinedef.SideFront >= 0) && (MapDefinition.MapSidedef[MapLinedef.SideFront].Sector == MapSector.Index))
                     {
@@ -1759,7 +1671,7 @@ public class TNavMesh : Object
                             new TPoint(MapDefinition.MapVertex[MapLinedef.V2].X, MapDefinition.MapVertex[MapLinedef.V2].Y)
                         );
                         Line.MapLinedef = MapLinedef.Index;
-                        SectorPolygon.AddLine(Line);
+                        Lines.Add(Line);
                     }
                 foreach (TMapLinedef MapLinedef in MapDefinition.MapLinedef)
                     if ((MapLinedef.SideBack >= 0) && (MapDefinition.MapSidedef[MapLinedef.SideBack].Sector == MapSector.Index))
@@ -1769,10 +1681,10 @@ public class TNavMesh : Object
                             new TPoint(MapDefinition.MapVertex[MapLinedef.V1].X, MapDefinition.MapVertex[MapLinedef.V1].Y)
                         );
                         Line.MapLinedef = MapLinedef.Index;
-                        SectorPolygon.AddLine(Line);
+                        Lines.Add(Line);
                     }
                 // Split the map sectors into a list of TPolygonGroup.
-                PolygonGroups = GetPolygonGroups(MapDefinition, SectorPolygon);
+                PolygonGroups = GetPolygonGroups(MapDefinition, Lines);
                 if (PolygonGroups is not null)
                 {
                     foreach (TPolygonGroup PolygonGroup in PolygonGroups)
@@ -1821,25 +1733,16 @@ public class TNavMesh : Object
                                 }
                             }
                         }
-                        InputPolygons.Clear();
-                        // Outer polygon edges.
-                        TPPLPolygon Polygon = new TPPLPolygon();
-                        foreach (TLine Line in PolygonGroup.Polygon.Lines)
-                            Polygon.AddPoint(new TPPLPoint(Line.A.X, Line.A.Y));
-                        Polygon.Hole = false;
-                        InputPolygons.Add(Polygon);
-                        // Inner holes polygon edges.
-                        foreach (TPolygon Sector in PolygonGroup.Holes)
-                        {
-                            TPPLPolygon Hole = new TPPLPolygon();
-                            foreach (TLine Line in Sector.Lines)
-                                Hole.AddPoint(new TPPLPoint(Line.A.X, Line.A.Y));
-                            Hole.Hole = true;
-                            InputPolygons.Add(Hole);
-                        }
                         // Perform the polygon partitioning into convex subpolygons.
+                        InputPolygons.Clear();
                         OutputPolygons.Clear();
-                        if (!TPPLPartition.ConvexPartition_HM(InputPolygons, OutputPolygons))
+                        if (TPPLPartition.RemoveHoles(PolygonGroup, InputPolygons))
+                        {
+                            foreach (TPPLPolygon Polygon1 in InputPolygons)
+                                if (!TPPLPartition.ConvexPartition_HM(Polygon1, OutputPolygons))
+                                    Messages.Add($"Map SECTOR # {MapSector.Index} could be processed incompletely.");
+                        }
+                        else
                             Messages.Add($"Map SECTOR # {MapSector.Index} could not be processed.");
                         if (OutputPolygons.Count > 0)
                         {
