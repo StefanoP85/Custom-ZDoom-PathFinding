@@ -192,7 +192,7 @@ public partial class FormViewMap : Form
                         else if ((RC & BOTTOM) != 0)
                         {
                             // Point is below the screen port.
-                            X = X1 + (X2 - X1) * (ViewMaxY - Y1) / (Y2 - Y1);
+                            X = X1 + (X2 - X1) * (ViewMinY - Y1) / (Y2 - Y1);
                             Y = ViewMinY;
                         }
                         else if ((RC & RIGHT) != 0)
