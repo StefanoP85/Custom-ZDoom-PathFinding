@@ -40,8 +40,8 @@ class TNavNode : TCustomNavMesh
 	int Parent;
 	void Initialize()
 	{
-		Closed = false;
-		Visited = false;
+		Closed = False;
+		Visited = False;
 		F = 0;
 		G = 0;
 		H = 0;
@@ -75,6 +75,13 @@ class TPoint
 	{
 		return (X == Other.X) && (Y == Other.Y);
 	}
+	static TPoint Create(int X, int Y)
+	{
+		TPoint Point = New('TPoint');
+		Point.X = X;
+		Point.Y = Y;
+		return Point;
+	}
 }
 
 // Class TLine represents a simple line in 2D Euclidean space.
@@ -90,9 +97,10 @@ class TLine
 		TLine Line = New('TLine');
 		Line.A = A;
 		Line.B = B;
-		Portal = -1;
-		Flags = 0;
-		MapLinedef = -1;
+		Line.Portal = -1;
+		Line.Flags = 0;
+		Line.MapLinedef = -1;
+		return Line;
 	}
 	bool Equals(TLine Other)
 	{
@@ -104,18 +112,20 @@ class TLine
 class TPolygon
 {
 	Array<TLine> Lines;
-	int HeightFloor;
-	int HeightCeiling;
 	int LineFirst;
 	int LineCount;
+	int HeightFloor;
+	int HeightCeiling;
 	int Flags;
 	int MapSector;
     static TPolygon Create()
 	{
-		LineFirst = 0;
-		LineCount = 0;
-		Flags = 0;
-		MapSector = -1;
+		TPolygon Polygon = New('TPolygon');
+		Polygon.LineFirst = 0;
+		Polygon.LineCount = 0;
+		Polygon.Flags = 0;
+		Polygon.MapSector = -1;
+		return Polygon;
     }
     void AddLine(TLine Line)
     {
@@ -124,15 +134,15 @@ class TPolygon
     // Function IsClosed checks if the polygon is closed.
 	bool IsClosed()
 	{
-		if (Lines.Siye() < 3)
-			return false;
+		if (Lines.Size() < 3)
+			return False;
 		Array<bool> CheckedLine;
 		for (int I = 0; I < Lines.Size(); I++)
-			CheckedLine.Push(false);
+			CheckedLine.Push(False);
 		int FirstLine = 0;
 		int CurrentLine = FirstLine;
 		do {
-			CheckedLine[CurrentLine] = true;
+			CheckedLine[CurrentLine] = True;
 			int LineIndex = 0;
 			bool NotFound = True;
 			while ((NotFound) && (LineIndex < Lines.Size()))
@@ -144,9 +154,9 @@ class TPolygon
 				return False;
 			CurrentLine = LineIndex;
 			if ((CheckedLine[CurrentLine]) && (CurrentLine != FirstLine))
-				return false;
+				return False;
 		} while ((CurrentLine != 0));
-		return true;
+		return True;
 	}
     // Function SortLines sorts the lines in a continuous path between points.
 	void SortLines()
@@ -161,7 +171,7 @@ class TPolygon
 			int LineIndex = 0;
 			bool NotFound = True;
 			while ((NotFound) && (LineIndex < Lines.Size()))
-				if (Lines[LineIndex].A.Equals(Lines[CurrentLine].B))
+				if (Lines[LineIndex].A.Equals(CurrentLine.B))
 					NotFound = False;
 				else
 					LineIndex++;
@@ -169,7 +179,7 @@ class TPolygon
 				return; // Only if not closed!
 			CurrentIndex = LineIndex;
 			if (CurrentIndex > 0)
-				LinesIndexes.Add(CurrentIndex);
+				LinesIndexes.Push(CurrentIndex);
 		} while (CurrentIndex > 0);
 		for (int I = 0; I < Lines.Size(); I++)
 		{
@@ -185,6 +195,20 @@ class TPolygon
 				LinesIndexes[I] = IndexA;
 			}
 		}
+	}
+}
+
+// Class TPolygonGroup represents a polygon in the map, obtained from a SECTOR, with SIDEDEF, LINEDEF and VERTEX data.
+// The SectorGroup is defined by the outer edges of the polygon and optionally the holes.
+class TPolygonGroup
+{
+	TPolygon Polygon;
+	Array<TPolygon> Holes;
+	static TPolygonGroup Create(TPolygon Polygon)
+	{
+		TPolygonGroup PolygonGroup = New('TPolygonGroup');
+		PolygonGroup.Polygon = Polygon;
+		return PolygonGroup;
 	}
 }
 
@@ -292,12 +316,12 @@ class TPPLPolygon
 		{
 			// Reverse the array.
 			int LastIndex = Points.Size();
-			int MidIndex = LastIndex > 1;
+			int MidIndex = LastIndex >> 1;
 			for (int I = 0; I < MidIndex; I++)
 			{
 				TPPLPoint P = Points[I];
-				Points[I] = Points[LastIndex - I];
-				Points[LastIndex - I] = P;
+				Points[I] = Points[LastIndex - I - 1];
+				Points[LastIndex - I - 1] = P;
 			}
 		}
 	}
@@ -346,28 +370,28 @@ class TPPLPartition
 		double Val;
 		Val = (P3.Y - P1.Y) * (P2.X - P1.X) - (P3.X - P1.X) * (P2.Y - P1.Y);
 		if (Val > 0)
-			return true;
+			return True;
 		else
-			return false;
+			return False;
 	}
 	static bool IsReflex(TPPLPoint P1, TPPLPoint P2, TPPLPoint P3)
 	{
 		double Val;
 		Val = (P3.Y - P1.Y) * (P2.X - P1.X) - (P3.X - P1.X) * (P2.Y - P1.Y);
 		if (Val < 0)
-			return true;
+			return True;
 		else
-			return false;
+			return False;
 	}
 	static bool IsInside(TPPLPoint P1, TPPLPoint P2, TPPLPoint P3, TPPLPoint Point)
 	{
 		if (IsConvex(P1, Point, P2))
-			return false;
+			return False;
 		if (IsConvex(P2, Point, P3))
-			return false;
+			return False;
 		if (IsConvex(P3, Point, P1))
-			return false;
-		return true;
+			return False;
+		return True;
 	}
 	static bool InCone(TPPLPoint P1, TPPLPoint P2, TPPLPoint P3, TPPLPoint Point)
 	{
@@ -375,55 +399,51 @@ class TPPLPartition
 		if (Convex)
 		{
 			if (!IsConvex(P1, P2, Point))
-				return false;
+				return False;
 			if (!IsConvex(P2, P3, Point))
-				return false;
-			return true;
+				return False;
+			return True;
 		}
 		else
 		{
 			if (IsConvex(P1, P2, Point))
-				return true;
+				return True;
 			if (IsConvex(P2, P3, Point))
-				return true;
-			return false;
+				return True;
+			return False;
 		}
 	}
 	static bool Intersects(TPPLPoint P11, TPPLPoint P12, TPPLPoint P21, TPPLPoint P22)
 	{
 		if ((P11.X == P21.X) && (P11.Y == P21.Y))
-			return false;
+			return False;
 		if ((P11.X == P22.X) && (P11.Y == P22.Y))
-			return false;
+			return False;
 		if ((P12.X == P21.X) && (P12.Y == P21.Y))
-			return false;
+			return False;
 		if ((P12.X == P22.X) && (P12.Y == P22.Y))
-			return false;
-		TPPLPoint V = TPPLPoint.Create();
-		TPPLPoint V1Ort = TPPLPoint.Create();
-		TPPLPoint V2Ort = TPPLPoint.Create();
-		double Dot11, Dot12, Dot21, Dot22;
-		V1Ort.X = P12.Y - P11.Y;
-		V1Ort.Y = P11.X - P12.X;
-		V2Ort.X = P22.Y - P21.Y;
-		V2Ort.Y = P21.X - P22.X;
-		V.X = P21.X - P11.X;
-		V.Y = P21.Y - P11.Y;
-		Dot21 = V.X * V1Ort.X + V.Y * V1Ort.Y;
-		V.X = P22.X - P11.X;
-		V.Y = P22.Y - P11.Y;
-		Dot22 = V.X * V1Ort.X + V.Y * V1Ort.Y;
-		V.X = P11.X - P21.X;
-		V.Y = P11.Y - P21.Y;
-		Dot11 = V.X * V2Ort.X + V.Y * V2Ort.Y;
-		V.X = P12.X - P21.X;
-		V.Y = P12.Y - P21.Y;
-		Dot12 = V.X * V2Ort.X + V.Y * V2Ort.Y;
+			return False;
+		double V1OrtX = P12.Y - P11.Y;
+		double V1OrtY = P11.X - P12.X;
+		double V2OrtX = P22.Y - P21.Y;
+		double V2OrtY = P21.X - P22.X;
+		double VX = P21.X - P11.X;
+		double VY = P21.Y - P11.Y;
+		double Dot21 = VX * V1OrtX + VY * V1OrtY;
+		VX = P22.X - P11.X;
+		VY = P22.Y - P11.Y;
+		double Dot22 = VX * V1OrtX + VY * V1OrtY;
+		VX = P11.X - P21.X;
+		VY = P11.Y - P21.Y;
+		double Dot11 = VX * V2OrtX + VY * V2OrtY;
+		VX = P12.X - P21.X;
+		VY = P12.Y - P21.Y;
+		double Dot12 = VX * V2OrtX + VY * V2OrtY;
 		if (Dot11 * Dot12 > 0)
-			return false;
+			return False;
 		if (Dot21 * Dot22 > 0)
-			return false;
-		return true;
+			return False;
+		return True;
 	}
 	static TPPLPoint Normalize(TPPLPoint Point)
 	{
@@ -439,14 +459,13 @@ class TPPLPartition
 	{
 		TPartitionVertex V1 = Vertex.Previous;
 		TPartitionVertex V3 = Vertex.Next;
-		TPPLPoint Vec1, Vec3;
 		Vertex.IsConvex = IsConvex(V1.Point, Vertex.Point, V3.Point);
-		Vec1 = Normalize(TPPLPoint.Subtract(V1.Point, Vertex.Point));
-		Vec3 = Normalize(TPPLPoint.Subtract(V3.Point, Vertex.Point));
+		TPPLPoint Vec1 = Normalize(TPPLPoint.Subtract(V1.Point, Vertex.Point));
+		TPPLPoint Vec3 = Normalize(TPPLPoint.Subtract(V3.Point, Vertex.Point));
 		Vertex.Angle = Vec1.X * Vec3.X + Vec1.Y * Vec3.Y;
 		if (Vertex.IsConvex)
 		{
-			Vertex.IsEar = true;
+			Vertex.IsEar = True;
 			for (int I = 0; I < NumVertices; I++)
 			{
 				if ((Vertices[I].Point.X == Vertex.Point.X) && (Vertices[I].Point.Y == Vertex.Point.Y))
@@ -457,142 +476,111 @@ class TPPLPartition
 					continue;
 				if (IsInside(V1.Point, Vertex.Point, V3.Point, Vertices[I].Point))
 				{
-					Vertex.IsEar = false;
+					Vertex.IsEar = False;
 					break;
 				}
 			}
 		}
 		else
-			Vertex.IsEar = false;
+			Vertex.IsEar = False;
 	}
 	// Function RemoveHoles is a simple heuristic procedure for removing holes from a list of polygons.
 	// It works by creating a diagonal from the right-most hole  to some other visible vertex.
 	// Vertices of all non-hole polys have to be in counter-clockwise order.
 	// Vertices of all hole polys have to be in clockwise order.
 	// Returns True if the process is successful.
-	static bool RemoveHoles(Array<TPPLPolygon> InputPolygons, out Array<TPPLPolygon> OutputPolygons)
+	static bool RemoveHoles(TPolygonGroup PolygonGroup, out Array<TPPLPolygon> OutputPolygons)
 	{
-		TPPLPolygon Hole = null;
-		TPPLPolygon Poly = null;
-		TPPLPoint BestPolyPoint = null;
-		int J, HolePointIndex = 0, PolyPointIndex = 0;
-		// Check for the trivial case of no holes
-		bool HasHoles = false;
-		for (int I = 0; I < InputPolygons.Size(); I++)
-			if (InputPolygons[I].Hole)
-			{
-				HasHoles = true;
-				break;
-			}
-		if (!HasHoles)
-		{
-			OutputPolygons.Append(InputPolygons);
-			return true;
-		}
-		Array<TPPLPolygon> Polygons;
-		for (int I = 0; I < InputPolygons.Size(); I++)
-			Polygons.Push(InputPolygons[I].Clone());
-		while (true)
-		{
-			// Find the hole point with the largest x
-			HasHoles = false;
-			for (int I = 0; I < Polygons.Size(); I++)
-			{
-				TPPLPolygon Polygon = Polygons[I];
-				if (!Polygon.Hole)
-					continue;
-				if (!HasHoles)
-				{
-					HasHoles = true;
-					Hole = Polygon;
-					HolePointIndex = 0;
-				}
-				for (int I = 0; I < Polygon.Points.Size(); I++)
-				{
-					if (Polygon.Points[I].X > Hole.Points[HolePointIndex].X)
-					{
-						Hole = Polygon;
-						HolePointIndex = I;
-					}
-				}
-			}
-			if (!HasHoles)
-				break;
-			TPPLPoint HolePoint = Hole.Points[HolePointIndex];
-			bool PointFound = false;
-			for (int I1 = 0; I1 < Polygons.Size(); I1++)
-			{
-				TPPLPolygon Polygon1 = Polygons[I1];
-				if (Polygon1.Hole)
-					continue;
-				for (int I = 0; I < Polygon1.Points.Size(); I++)
-				{
-					if (Polygon1.Points[I].X <= HolePoint.X)
-						continue;
-					if (!InCone(Polygon1.Points[(I + Polygon1.Points.Size() - 1) % (Polygon1.Points.Size())], Polygon1.Points[I], Polygon1.Points[(I + 1) % (Polygon1.Points.Size())], HolePoint))
-						continue;
-					TPPLPoint PolyPoint = Polygon1.Points[I];
-					if (PointFound)
-					{
-						TPPLPoint V1 = Normalize(TPPLPoint.Subtract(PolyPoint, HolePoint));
-						TPPLPoint V2 = Normalize(TPPLPoint.Subtract(BestPolyPoint, HolePoint));
-						if (V2.X > V1.X)
-							continue;
-					}
-					bool PointVisible = true;
-					for (int I2 = 0; I2 < Polygons.Size(); I2++)
-					{
-						TPPLPolygon Polygon2 = Polygons[I2];
-						if (Polygon2.Hole)
-							continue;
-						for (J = 0; J < Polygon2.Points.Size(); J++)
-						{
-							TPPLPoint LineP1 = Polygon2.Points[J];
-							TPPLPoint LineP2 = Polygon2.Points[(J + 1) % (Polygon2.Points.Size())];
-							if (Intersects(HolePoint, PolyPoint, LineP1, LineP2))
-							{
-								PointVisible = false;
-								break;
-							}
-						}
-						if (!PointVisible)
-							break;
-					}
-					if (PointVisible)
-					{
-						PointFound = true;
-						BestPolyPoint = PolyPoint;
-						Poly = Polygon1;
-						PolyPointIndex = I;
-					}
-				}
-			}
-			if (!PointFound)
-				return false;
-			TPPLPolygon NewPoly = TPPLPolygon.Create();
-			for (int I = 0; I <= PolyPointIndex; I++)
-				NewPoly.AddPoint(Poly.Points[I]);
-			for (int I = 0; I <= Hole.Points.Size(); I++)
-				NewPoly.AddPoint(Hole.Points[(I + HolePointIndex) % Hole.Points.Size()]);
-			for (int I = PolyPointIndex; I < Poly.Points.Size(); I++)
-				NewPoly.AddPoint(Poly.Points[I]);
-			Polygons.Delete(Polygons.Find(Hole));
-			Polygons.Delete(Polygons.Find(Poly));
-			Polygons.Push(NewPoly);
-		}
-		OutputPolygons.Append(Polygons);
-		return true;
+		TPPLPolygon Polygon = TPPLPolygon.Create();
+		for (int I = 0; I < PolygonGroup.Polygon.Lines.Size(); I++)
+            Polygon.AddPoint(TPPLPoint.Create(PolygonGroup.Polygon.Lines[I].A.X, PolygonGroup.Polygon.Lines[I].A.Y));
+        Polygon.Hole = False;
+        // Check for the trivial case of no holes.
+        if (PolygonGroup.Holes.Size() == 0)
+        {
+            OutputPolygons.Push(Polygon);
+            return True;
+        }
+        Array<TPPLPolygon> Holes;
+		for (int J = 0; J < PolygonGroup.Holes.Size(); J++)
+        {
+            TPPLPolygon Hole = TPPLPolygon.Create();
+			for (int I = 0; I < PolygonGroup.Holes[J].Lines.Size(); I++)
+                Hole.AddPoint(TPPLPoint.Create(PolygonGroup.Holes[J].Lines[I].A.X, PolygonGroup.Holes[J].Lines[I].A.Y));
+            Hole.Hole = True;
+            Holes.Push(Hole);
+        }
+        while (Holes.Size() > 0)
+        {
+            // Find the hole point with the largest X.
+            TPPLPolygon SelectedHole = Holes[0];
+            int HolePointIndex = 0;
+            int PolyPointIndex = 0;
+			for (int J = 0; J < Holes.Size(); J++)
+            {
+                for (int I = 0; I < Holes[J].Points.Size(); I++)
+                    if (Holes[J].Points[I].X > SelectedHole.Points[HolePointIndex].X)
+                    {
+                        SelectedHole = Holes[J];
+                        HolePointIndex = I;
+                    }
+            }
+            TPPLPoint HolePoint = SelectedHole.Points[HolePointIndex];
+            bool PointFound = False;
+            TPPLPoint BestPolyPoint;
+            for (int I = 0; I < Polygon.Points.Size(); I++)
+            {
+                if (Polygon.Points[I].X <= HolePoint.X)
+                    continue;
+                if (!InCone(Polygon.Points[(I + Polygon.Points.Size() - 1) % (Polygon.Points.Size())], Polygon.Points[I], Polygon.Points[(I + 1) % (Polygon.Points.Size())], HolePoint))
+                    continue;
+                TPPLPoint PolyPoint = Polygon.Points[I];
+                if (PointFound)
+                {
+                    TPPLPoint V1 = Normalize(TPPLPoint.Subtract(PolyPoint, HolePoint));
+                    TPPLPoint V2 = Normalize(TPPLPoint.Subtract(BestPolyPoint, HolePoint));
+                    if (V2.X > V1.X)
+                        continue;
+                }
+                bool PointVisible = True;
+                for (int J = 0; J < Polygon.Points.Size(); J++)
+                {
+                    TPPLPoint LineP1 = Polygon.Points[J];
+                    TPPLPoint LineP2 = Polygon.Points[(J + 1) % (Polygon.Points.Size())];
+                    if (Intersects(HolePoint, PolyPoint, LineP1, LineP2))
+                    {
+                        PointVisible = False;
+                        break;
+                    }
+                }
+                if (PointVisible)
+                {
+                    PointFound = True;
+                    BestPolyPoint = PolyPoint;
+                    PolyPointIndex = I;
+                }
+            }
+            if (!PointFound)
+                return False;
+            for (int I = 0; I <= SelectedHole.Points.Size(); I++)
+                Polygon.Points.Insert(PolyPointIndex + I + 1, SelectedHole.Points[(I + HolePointIndex) % SelectedHole.Points.Size()]);
+            Polygon.Points.Insert(PolyPointIndex + SelectedHole.Points.Size() + 2, Polygon.Points[PolyPointIndex]);
+			Holes.Delete(Holes.Find(SelectedHole));
+			SelectedHole.Destroy();
+        }
+        OutputPolygons.Push(Polygon);
+        return True;
 	}
 	// Function Triangulate_EC triangulates a polygon by ear clipping.
 	// Returns True if the process is successful.
 	static bool Triangulate_EC(TPPLPolygon InputPolygon, out Array<TPPLPolygon> OutputPolygons)
 	{
 		if (InputPolygon.Points.Size() < 3)
-			return false;
+			return False;
 		if (InputPolygon.Points.Size() == 3)
 		{
 			OutputPolygons.Push(InputPolygon);
-			return true;
+			return True;
 		}
 		int NumVertices = InputPolygon.Points.Size();
 		Array<TPartitionVertex> Vertices;
@@ -602,7 +590,7 @@ class TPPLPartition
 			Vertices[I] = TPartitionVertex.Create(InputPolygon.Points[I]);
 		for (int I = 0; I < NumVertices; I++)
 		{
-			Vertices[I].IsActive = true;
+			Vertices[I].IsActive = True;
 			if (I == (NumVertices - 1))
 				Vertices[I].Next = Vertices[0];
 			else
@@ -616,7 +604,7 @@ class TPPLPartition
 			UpdateVertex(Vertices[I], Vertices, NumVertices);
 		for (int I = 0; I < NumVertices - 3; I++)
 		{
-			bool EarFound = false;
+			bool EarFound = False;
 			// Search the most extruded ear.
 			for (int J = 0; J < NumVertices; J++)
 			{
@@ -626,7 +614,7 @@ class TPPLPartition
 					continue;
 				if (!EarFound)
 				{
-					EarFound = true;
+					EarFound = True;
 					Ear = Vertices[J];
 				}
 				else
@@ -636,10 +624,10 @@ class TPPLPartition
 				}
 			}
 			if (!EarFound)
-				return false;
+				return False;
 			TPPLPolygon Triangle = TPPLPolygon.CreateTriangle(Ear.Previous.Point, Ear.Point, Ear.Next.Point);
 			OutputPolygons.Push(Triangle);
-			Ear.IsActive = false;
+			Ear.IsActive = False;
 			Ear.Previous.Next = Ear.Next;
 			Ear.Next.Previous = Ear.Previous;
 			if (I == NumVertices - 4)
@@ -654,7 +642,7 @@ class TPPLPartition
 				OutputPolygons.Push(Triangle);
 				break;
 			}
-		return true;
+		return True;
 	}
 	// Function ConvexPartition_HM partitions a polygon into convex polygons by using the
 	// Hertel-Mehlhorn algorithm. The algorithm gives at most four times the number of parts as the optimal algorithm,
@@ -664,7 +652,7 @@ class TPPLPartition
 	static bool ConvexPartition_HM(TPPLPolygon InputPolygon, out Array<TPPLPolygon> OutputPolygons)
 	{
 		if (InputPolygon.Points.Size() < 3)
-			return false;
+			return False;
 		Array<TPPLPolygon> Triangles;
 		int I11, I12, I21 = 0, I22 = 0, I13, I23;
 		// Check if the poly is already convex.
@@ -688,10 +676,10 @@ class TPPLPartition
 		if (NumReflex == 0)
 		{
 			OutputPolygons.Push(InputPolygon);
-			return true;
+			return True;
 		}
 		if (!Triangulate_EC(InputPolygon, Triangles))
-			return false;
+			return False;
 		int TriangleIndex1 = 0, TriangleIndex2;
 		while (TriangleIndex1 < Triangles.Size())
 		{
@@ -702,28 +690,21 @@ class TPPLPartition
 				TPPLPoint D1 = Polygon1.Points[I11];
 				I12 = (I11 + 1) % (Polygon1.Points.Size());
 				TPPLPoint D2 = Polygon1.Points[I12];
-				bool IsDiagonal = false;
+				bool IsDiagonal = False;
 				TriangleIndex2 = TriangleIndex1;
 				while (TriangleIndex2 < Triangles.Size())
 				{
-					bool ExitWhile = False;
 					if (TriangleIndex1 != TriangleIndex2)
 					{
 						Polygon2 = Triangles[TriangleIndex2];
 						for (I21 = 0; I21 < Polygon2.Points.Size(); I21++)
 						{
 							if ((D2.X != Polygon2.Points[I21].X) || (D2.Y != Polygon2.Points[I21].Y))
-							{
-								ExitWhile = True;
-								break;
-							}
+								continue;
 							I22 = (I21 + 1) % (Polygon2.Points.Size());
 							if ((D1.X != Polygon2.Points[I22].X) || (D1.Y != Polygon2.Points[I22].Y))
-							{
-								ExitWhile = True;
-								break;
-							}
-							IsDiagonal = true;
+								continue;
+							IsDiagonal = True;
 							break;
 						}
 						if (IsDiagonal)
@@ -773,20 +754,7 @@ class TPPLPartition
 			TriangleIndex1++;
 		}
 		OutputPolygons.Append(Triangles);
-		return true;
-	}
-}
-
-// Class TPolygonGroup represents a polygon in the map, obtained from a SECTOR, with SIDEDEF, LINEDEF and VERTEX data.
-// The SectorGroup is defined by the outer edges of the polygon and optionally the holes.
-class TPolygonGroup
-{
-	TPolygon Polygon;
-	Array<TPolygon> Holes;
-	static TPolygonGroup Create(TPolygon Polygon)
-	{
-		TPolygonGroup PolygonGroup = New('TPolygonGroup');
-		PolygonGroup.Polygon = Polygon;
+		return True;
 	}
 }
 
@@ -844,19 +812,6 @@ class TChainDirectory: TCustomNavMesh
 		}
 		PolygonCount++;
 	}
-	bool GetPolygonGroups()
-	{
-		return false;
-	}
-	void ProcessSector(int SectorNumber)
-	{
-		// Build a TPolygon with all the sector's lines.
-	}
-}
-
-class TNavMeshBuilder: TCustomNavMesh
-{
-
 }
 
 // -----------------------------------------------------------------------------
@@ -953,7 +908,7 @@ class TNavMesh : TCustomNavMesh
 		TNavPolygon NavPolygon = NavPolygons[PolygonIndex];
 		// Check if Z is inside polygon floor and ceiling heights.
 		if ((Point.Z < NavPolygon.HeightFloor) || (Point.Z > NavPolygon.HeightCeiling))
-			return false;
+			return False;
 		// Keep track of cross product sign changes.
 		int Positive = 0;
 		int Negative = 0;
@@ -963,7 +918,7 @@ class TNavMesh : TCustomNavMesh
 			// Check if Point is in the polygon.
 			TNavLine NavLine = NavLines[LineIndex];
 			if ((NavLine.X1 == Point.X) && (NavLine.Y1 == Point.Y))
-				return true;
+				return True;
 			int CrossProduct = (Point.X - NavLine.X1) * (NavLine.Y2 - NavLine.Y1) - (Point.Y - NavLine.Y1) * (NavLine.X2 - NavLine.X1);
 			if (CrossProduct > 0)
 				Positive++;
@@ -971,11 +926,11 @@ class TNavMesh : TCustomNavMesh
 				Negative++;
 			// If the sign changes, the point is outside.
 			if ((Positive > 0) && (Negative > 0))
-				return false;
+				return False;
 			LineIndex++;
 		}
 		// The point is on same side of all polygon lines.
-		return true;
+		return True;
 	}
 	// Searchs the polygon index in NavPolygons, that contains the given point; -1 if not found.
 	int SearchPolygon(Vector3 Point)
@@ -1012,7 +967,7 @@ class TNavMesh : TCustomNavMesh
 		// Safety check.
 		Route.Clear();
 		if ((StartPolygon < 0) || (StopPolygon < 0) ||(StartPolygon == StopPolygon))
-			return false;
+			return False;
 		int StopX = (NavLines[NavPolygons[StopPolygon].LineFirst].X1 + NavLines[NavPolygons[StopPolygon].LineFirst].X2) / 2;
 		int StopY = (NavLines[NavPolygons[StopPolygon].LineFirst].Y1 + NavLines[NavPolygons[StopPolygon].LineFirst].Y2) / 2;
 		// Initialize the open list and the closed list.
@@ -1042,7 +997,7 @@ class TNavMesh : TCustomNavMesh
 			OpenList.Delete(MinNode);
 			//CurrentNode = OpenList[OpenList.Size() - 1];
 			//OpenList.Pop();
-			NavNodes[CurrentNode].Closed = true;
+			NavNodes[CurrentNode].Closed = True;
 			// Generate "MinNode"'s successors.
 			I = 0;
 			LineIndex = NavPolygons[CurrentNode].LineFirst;
@@ -1075,7 +1030,7 @@ class TNavMesh : TCustomNavMesh
 							Route.Push(NavRoute);
 							NodeIndex = NavNodes[NodeIndex].Parent;
 						}
-						return true;
+						return True;
 					}
 					// Else, compute both g and h for successor.
 					NodeIndex = Portal;
@@ -1094,21 +1049,21 @@ class TNavMesh : TCustomNavMesh
 								OpenList.Push(NodeIndex);
 							NavNodes[NodeIndex].Parent = CurrentNode;
 							NavNodes[NodeIndex].LinePortal = LineIndex;
-							NavNodes[NodeIndex].Visited = true;
+							NavNodes[NodeIndex].Visited = True;
 						}
 				}
 				I++;
 				LineIndex++;
 			}
 		}
-		return false;
+		return False;
 	}
 	// Update an existing path.
 	bool UpdateRoute(int LastStopPolygon, int CurrentStopPolygon, in out Array<TNavRoute> Route, in out int RouteStep)
 	{
 		// Trivial case.
 		if (LastStopPolygon == CurrentStopPolygon)
-			return true;
+			return True;
 		// Search the neighbors of the last polygon.
 		int I = 0;
 		int LineIndex = NavPolygons[LastStopPolygon].LineFirst;
@@ -1124,17 +1079,337 @@ class TNavMesh : TCustomNavMesh
 				NavRoute.Position.Z = NavPolygons[CurrentStopPolygon].HeightFloor;
 				Route.Insert(0, NavRoute);
 				RouteStep = RouteStep + 1;
-				return true;
+				return True;
 			}
 			I++;
 		}
 		// A new route is needed.
-		return false;
+		return False;
 	}
 	static TNavMesh Create()
 	{
 		TNavMesh NavMesh = New('TNavMesh');
 		return NavMesh;
+	}
+}
+
+class TNavMeshBuilder: TCustomNavMesh
+{
+	int ActorHeight;
+	int ActorWidth;
+	Array<TLine> FLines;
+	Array<TPolygon> FPolygons;
+	static TNavMeshBuilder Create(int ActorHeight = 128, int ActorWidth = 32)
+	{
+		TNavMeshBuilder NavMeshBuilder = New('TNavMeshBuilder');
+		NavMeshBuilder.ActorHeight = ActorHeight;
+		NavMeshBuilder.ActorWidth = ActorWidth;
+		return NavMeshBuilder;
+	}
+	TOrientation CalcDirection(TPoint A, TPoint B, TPoint C)
+    {
+        int CrossProduct = (B.Y - A.Y) * (C.X - B.X) - (B.X - A.X) * (C.Y - B.Y);
+        if (CrossProduct == 0)
+            return Collinear;
+        else
+            if (CrossProduct < 0)
+            return CounterClockwise;
+        else
+            return Clockwise;
+    }
+	bool PointOnLine(TLine Line, TPoint Point)
+    {
+        if ((Point.X <= Max(Line.A.X, Line.B.X)) && (Point.X >= Min(Line.A.X, Line.B.X)) && (Point.Y <= Max(Line.A.Y, Line.B.Y)) && (Point.Y >= Min(Line.A.Y, Line.B.Y)))
+            return true;
+        else
+            return false;
+    }
+	bool LineIntersectLine(TLine Line1, TLine Line2)
+    {
+        TOrientation Direction1 = CalcDirection(Line1.A, Line1.B, Line2.A);
+        TOrientation Direction2 = CalcDirection(Line1.A, Line1.B, Line2.B);
+        TOrientation Direction3 = CalcDirection(Line2.A, Line2.B, Line1.A);
+        TOrientation Direction4 = CalcDirection(Line2.A, Line2.B, Line1.B);
+        if ((Direction1 != Direction2) && (Direction3 != Direction4))
+            return true;
+        if ((Direction1 == Collinear) && (PointOnLine(Line1, Line2.A)))
+            return true;
+        if ((Direction2 == Collinear) && (PointOnLine(Line1, Line2.B)))
+            return true;
+        if ((Direction3 == Collinear) && (PointOnLine(Line2, Line1.A)))
+            return true;
+        if ((Direction4 == Collinear) && (PointOnLine(Line2, Line1.B)))
+            return true;
+        return false;
+    }
+	bool PointInsidePolygon(TPolygon Polygon, TPoint Point)
+    {
+        if (Polygon.Lines.Size() < 3)
+            return false;
+        bool Result = false;
+        TPoint P1 = Polygon.Lines[0].A;
+		for (int I = 0; I < Polygon.Lines.Size(); I++)
+        {
+			TLine Line = Polygon.Lines[I];
+            TPoint P2 = Line.B;
+            if (Point.Y > Min(P1.Y, P2.Y))
+                if (Point.Y <= Max(P1.Y, P2.Y))
+                    if (Point.X <= Max(P1.X, P2.X))
+                    {
+                        double IntersectionX = (Point.Y - P1.Y) * (P2.X - P1.X) / (P2.Y - P1.Y) + P1.X;
+                        if ((P1.X == P2.X) || (Point.X <= IntersectionX))
+                            Result = !Result;
+                    }
+            P1 = P2;
+        }
+        return Result;
+    }
+	bool PolygonInsidePolygon(TPolygon OuterPolygon, TPolygon TestPoligon)
+    {
+        if ((OuterPolygon.Lines.Size() < 3) || (TestPoligon.Lines.Size() < 3))
+            return false;
+        else
+            return (PointInsidePolygon(OuterPolygon, TestPoligon.Lines[0].A)) && (PointInsidePolygon(OuterPolygon, TestPoligon.Lines[0].B));
+    }
+	// Function GetPolygonGroups creates the list of SectorGroup from a SECTOR.
+	bool GetPolygonGroups(Array<TLine> Lines, out Array<TPolygonGroup> PolygonGroups)
+	{
+		// If the SECTOR has less than 3 LINEDEF, then it's scrapped.
+        if (Lines.Size() < 3)
+            return False;
+		// Split the closed regions of the SECTOR.
+		Array<TPolygon> Polygons;
+        Array<bool> CheckedLine;
+		for (int I = 0; I < Lines.Size(); I++)
+            CheckedLine.Push(False);
+		bool MoreLines = True;
+		do
+        {
+			int FirstLine = -1;
+			for (int J = 0; J < CheckedLine.Size(); J++)
+				if (CheckedLine[J] == False)
+				{
+					FirstLine = J;
+					break;
+				}
+            if (FirstLine >= 0)
+            {
+                TPolygon Polygon = TPolygon.Create();
+                Polygon.AddLine(Lines[FirstLine]);
+                CheckedLine[FirstLine] = True;
+                int CurrentLine = FirstLine;
+                int NextLine;
+                do
+                {
+					for (int J = 0; J < Lines.Size(); J++)
+						if (Lines[J].A.Equals(Lines[CurrentLine].B))
+						{
+							NextLine = J;
+							break;
+						}
+                    if ((NextLine >= 0) && (CheckedLine[NextLine]))
+                        break;
+                    if ((NextLine >= 0) && (NextLine != FirstLine))
+                    {
+                        Polygon.AddLine(Lines[NextLine]);
+                        CheckedLine[NextLine] = True;
+                        CurrentLine = NextLine;
+                    }
+                } while ((NextLine >= 0) && (NextLine != FirstLine));
+                if (Polygon.IsClosed())
+                {
+                    Polygon.SortLines();
+                    Polygons.Push(Polygon);
+                }
+            }
+			MoreLines = False;
+			for (int I = 1; I < CheckedLine.Size(); I++)
+				if (!CheckedLine[I])
+				{
+					MoreLines = True;
+					break;
+				}
+        } while (MoreLines);
+		if (Polygons.Size() == 0)
+            return False;
+		if (Polygons.Size() == 1)
+        {
+            // Only one closed region.
+            TPolygonGroup PolygonGroup = TPolygonGroup.Create(Polygons[0]);
+            PolygonGroups.Push(PolygonGroup);
+        }
+		else
+        {
+            // Multiple closed regions.
+            // Check the holes and nested regions / holes.
+            Array<int> PolygonDepthLevel;
+			for (int I = 0; I < Polygons.Size(); I++)
+                PolygonDepthLevel.Push(0);
+            for (int I = 0; I < Polygons.Size(); I++)
+                for (int J = 0; J < Polygons.Size(); J++)
+                    if (I != J)
+                        if (PolygonInsidePolygon(Polygons[I], Polygons[J]))
+                            PolygonDepthLevel[J]++;
+			int MaxDepthLevel = PolygonDepthLevel[0];
+			for (int I = 1; I < PolygonDepthLevel.Size(); I++)
+				if (PolygonDepthLevel[I] > MaxDepthLevel)
+					MaxDepthLevel = PolygonDepthLevel[I];
+            for (int DepthLevel = 0; DepthLevel <= MaxDepthLevel; DepthLevel += 2)
+                for (int I = 0; I < Polygons.Size(); I++)
+                    if (PolygonDepthLevel[I] == DepthLevel)
+                    {
+                        TPolygonGroup PolygonGroup = TPolygonGroup.Create(Polygons[I]);
+                        for (int J = 0; J < Polygons.Size(); J++)
+                            if ((I != J) && (PolygonDepthLevel[J] == DepthLevel + 1) && (PolygonInsidePolygon(Polygons[I], Polygons[J])))
+                                PolygonGroup.Holes.Push(Polygons[J]);
+                        PolygonGroups.Push(PolygonGroup);
+                    }
+        }
+		return true;
+	}
+	void ProcessPolygonMesh(TPolygon Polygon, int MapSector)
+    {
+        // Check if there is enough vertical space.
+        if ((Polygon.HeightCeiling - Polygon.HeightFloor) < ActorHeight)
+            return;
+        // Search for portals.
+		for (int LineIndex = 0; LineIndex < Polygon.Lines.Size(); LineIndex++)
+        {
+			TLine PLine = Polygon.Lines[LineIndex];
+			bool NotFound = True;
+			int MapLinedefIndex = 0;
+			while ((NotFound) && (MapLinedefIndex < Level.Lines.Size()))
+				if (((PLine.A.X == Level.Lines[MapLinedefIndex].V1.P.X) && (PLine.A.Y == Level.Lines[MapLinedefIndex].V1.P.Y) && (PLine.B.X == Level.Lines[MapLinedefIndex].V2.P.X) && (PLine.A.Y == Level.Lines[MapLinedefIndex].V2.P.Y))
+				|| ((PLine.A.X == Level.Lines[MapLinedefIndex].V2.P.X) && (PLine.A.Y == Level.Lines[MapLinedefIndex].V2.P.Y) && (PLine.B.X == Level.Lines[MapLinedefIndex].V1.P.X) && (PLine.A.Y == Level.Lines[MapLinedefIndex].V1.P.Y)))
+					NotFound = False;
+				else
+					MapLinedefIndex++;
+			if (NotFound)
+				MapLinedefIndex = -1;
+            PLine.MapLinedef = MapLinedefIndex;
+            // Check for portals.
+            int CurrentPolygonIndex = 0;
+            int CurrentPolygonLine = 0;
+            for (int I = 0; I < FLines.Size(); I++)
+            {
+                if (((PLine.A == FLines[I].A) && (PLine.B == FLines[I].B)) || ((PLine.A == FLines[I].B) && (PLine.B == FLines[I].A)))
+                {
+                    bool LineIsPortal = true;
+                    // If the line is generated from the splitting of the SECTOR, then check for 3D floors, else check further.
+                    if (MapLinedefIndex >= 0)
+                    {
+                        // Check if the LINEDEF blocks monsters.
+						Line MapLinedef = Level.Lines[MapLinedefIndex];
+						if ((MapLinedef.Flags & 0x00000003) || (MapLinedef.Flags2 & 0x00000001))
+                            LineIsPortal = false;
+                        // Check if the two floor heights are too different.
+                        int HeightFloorDifference = Abs(MapLinedef.FrontSector.FloorPlane.ZatPoint(MapLinedef.V1.P) - FPolygons[CurrentPolygonIndex].HeightFloor);
+                        if (HeightFloorDifference > 24)
+                            LineIsPortal = false;
+                        // Check if there is enough vertical space between the two connecting sectors.
+                        int VerticalSpace = Min(Polygon.HeightCeiling, FPolygons[CurrentPolygonIndex].HeightCeiling) - Max(Polygon.HeightFloor, FPolygons[CurrentPolygonIndex].HeightFloor);
+                        if (VerticalSpace < ActorHeight)
+                            LineIsPortal = false;
+                    }
+                    else
+                    {
+                        // Check if the two floor heights are too different.
+                        int HeightFloorDifference = Abs(Polygon.HeightFloor - FPolygons[CurrentPolygonIndex].HeightFloor);
+                        if (HeightFloorDifference > 24)
+                            LineIsPortal = false;
+                        // Check if there is enough vertical space between the two connecting sectors.
+                        int VerticalSpace = Min(Polygon.HeightCeiling, FPolygons[CurrentPolygonIndex].HeightCeiling) - Max(Polygon.HeightFloor, FPolygons[CurrentPolygonIndex].HeightFloor);
+                        if (VerticalSpace < ActorHeight)
+                            LineIsPortal = false;
+                    }
+                    if (LineIsPortal)
+                    {
+                        PLine.Portal = CurrentPolygonIndex;
+                        FLines[I].Portal = FPolygons.Size();
+                    }
+                }
+                CurrentPolygonLine++;
+                if (CurrentPolygonLine == FPolygons[CurrentPolygonIndex].LineCount)
+                {
+                    CurrentPolygonLine = 0;
+                    CurrentPolygonIndex++;
+                }
+            }
+        }
+        // Add the polygon.
+        Polygon.LineFirst = FLines.Size();
+        Polygon.LineCount = Polygon.Lines.Size();
+        FPolygons.Push(Polygon);
+        // Add the lines.
+		for (int I = 0; I < Polygon.Lines.Size(); I++)
+            FLines.Push(Polygon.Lines[I]);
+    }
+	void ProcessPolygons(Array<TPPLPolygon> Polygons, int HeightFloor, int HeightCeiling, int MapSector, int Flags = 0)
+    {
+		for (int PolygonIndex = 0; PolygonIndex < Polygons.Size(); PolygonIndex++)
+        {
+			TPPLPolygon Polygon = Polygons[PolygonIndex];
+            // Generate the mesh polygon.
+            TPolygon Mesh = TPolygon.Create();
+            Mesh.HeightFloor = HeightFloor;
+            Mesh.HeightCeiling = HeightCeiling;
+            Mesh.MapSector = MapSector;
+            Mesh.Flags = Flags;
+            for (int I = 0; I < Polygon.Points.Size(); I++)
+            {
+                int J = (I + 1) % Polygon.Points.Size();
+                Mesh.Lines.Push(
+                    TLine.Create(
+                        TPoint.Create(Polygon.Points[I].X, Polygon.Points[I].Y),
+                        TPoint.Create(Polygon.Points[J].X, Polygon.Points[J].Y)
+                    )
+                );
+            }
+            // Append the mesh polygon to the navigation mesh.
+            Polygon.SetOrientation(CounterClockwise);
+            ProcessPolygonMesh(Mesh, MapSector);
+        }
+    }
+	void ProcessSector(int SectorNumber)
+	{
+		// Build a TPolygon with all the sector's lines.
+		Array<TLine> Lines;
+		Array<TPolygonGroup> PolygonGroups;
+		int HeightFloor = Level.Sectors[SectorNumber].FloorPlane.ZatPoint(Level.Sectors[SectorNumber].Lines[0].V1.P);
+		int HeightCeiling = Level.Sectors[SectorNumber].CeilingPlane.ZatPoint(Level.Sectors[SectorNumber].Lines[0].V1.P);
+		for (int LineIndex = 0; LineIndex < Level.Sectors[SectorNumber].Lines.Size(); LineIndex++)
+		{
+			TLine PLine = TLine.Create(
+				TPoint.Create(Level.Sectors[SectorNumber].Lines[LineIndex].V1.P.X, Level.Sectors[SectorNumber].Lines[LineIndex].V1.P.Y),
+				TPoint.Create(Level.Sectors[SectorNumber].Lines[LineIndex].V2.P.X, Level.Sectors[SectorNumber].Lines[LineIndex].V2.P.Y)
+			);
+			PLine.MapLinedef = Level.Sectors[SectorNumber].Lines[LineIndex].Index();
+			Lines.Push(PLine);
+		}
+		// Split the map sectors into a list of TPolygonGroup.
+		if (GetPolygonGroups(Lines, PolygonGroups))
+		{
+			Array<TPPLPolygon> InputPolygons;
+			Array<TPPLPolygon> OutputPolygons;
+			for (int I = 0; I < PolygonGroups.Size(); I++)
+			{
+				TPolygonGroup PolygonGroup = PolygonGroups[I];
+				InputPolygons.Delete(0, InputPolygons.Size());
+				OutputPolygons.Delete(0, OutputPolygons.Size());
+				if (TPPLPartition.RemoveHoles(PolygonGroup, InputPolygons))
+				{
+					if (!TPPLPartition.ConvexPartition_HM(InputPolygons[0], OutputPolygons))
+						Console.Printf("Map SECTOR %i could be processed incompletely.", SectorNumber);
+				}
+				else
+					Console.Printf("Map SECTOR %i could not be processed.", SectorNumber);
+				if (OutputPolygons.Size() > 0)
+				{
+					ProcessPolygons(OutputPolygons, HeightFloor, HeightCeiling, SectorNumber);
+				}
+			}
+		}
+		Console.Printf("Polygons = %i, Lines = %i", FPolygons.Size(), FLines.Size());
 	}
 }
 
@@ -1150,14 +1425,11 @@ class TNavMeshHandler : EventHandler
 	override void WorldLoaded(WorldEvent E)
 	{
 		ChainDirectory = TChainDirectory.Create();
+		TNavMeshBuilder NavMeshBuilder = TNavMeshBuilder.Create();
 		NavMesh = TNavMesh.Create();
 		for (int I = 0; I < Level.Sectors.Size(); I++)
 		{
-			ChainDirectory.ChainSectorPolygon(I, I * 5 + 0);
-			ChainDirectory.ChainSectorPolygon(I, I * 5 + 1);
-			ChainDirectory.ChainSectorPolygon(I, I * 5 + 2);
-			ChainDirectory.ChainSectorPolygon(I, I * 5 + 3);
-			ChainDirectory.ChainSectorPolygon(I, I * 5 + 4);
+			NavMeshBuilder.ProcessSector(I);
 		}
 	}
 	override void WorldUnloaded(WorldEvent E)
@@ -1166,5 +1438,131 @@ class TNavMeshHandler : EventHandler
 		ChainDirectory.Destroy();
 		NavMesh.Destroy();
 		NavMesh = null;
+	}
+}
+
+// -----------------------------------------------------------------------------
+// NavMesh base Actor.
+// -----------------------------------------------------------------------------
+class TCustomNavMeshActor : KAI_Actor abstract
+{
+	TNavMesh NavMesh;
+	// true if the route is valid.
+	bool RouteActive;
+	// The Route is simply an array of points.
+	Array<TNavRoute> Route;
+	int RouteStep;
+	// The last polygon of the self Actor.
+	int  RouteLastSelfPolygon;
+	// The last polygon of the Target Actor.
+	int  RouteLastTargetPolygon;
+	// Route management functions.
+	void RouteBegin()
+	{
+		RouteActive = true;
+		RouteStep = Route.Size() - 1;
+	}
+	void RouteEnd()
+	{
+		Route.Clear();
+		RouteActive = false;
+	}
+	bool RouteSearch(Vector3 Destination)
+	{
+		int CurrentSelfPolygon = NavMesh.SearchPolygon(Pos);
+		int CurrentTargetPolygon = NavMesh.SearchPolygon(Destination);
+		if ((CurrentSelfPolygon >= 0) && (CurrentTargetPolygon >= 0) && (CurrentSelfPolygon != CurrentTargetPolygon))
+		{
+			RouteLastSelfPolygon = CurrentSelfPolygon;
+			RouteLastTargetPolygon = CurrentTargetPolygon;
+			return NavMesh.SearchRoute(CurrentSelfPolygon, CurrentTargetPolygon, Route);
+		}
+		return false;
+	}
+	void RouteChase(Vector3 Destination)
+	{
+		// Update the current position and the target position.
+		int CurrentSelfPolygon = NavMesh.SearchPolygon(Pos);
+		int CurrentTargetPolygon = NavMesh.SearchPolygon(Destination);
+		if ((CurrentSelfPolygon < 0) || (CurrentTargetPolygon < 0))
+		{
+			// No route!
+			RouteEnd();
+			KAI_MoveTowards(Target.Pos);;
+			return;
+		}
+		// Update the next step.
+		if ((RouteStep > 0) && (CurrentSelfPolygon == Route[RouteStep].Polygon))
+		{
+			RouteStep--;
+			if (RouteStep == 0)
+			{
+				// Destination reached, the Route is no longer necessary.
+				RouteEnd();
+				KAI_MoveTowards(Target.Pos);;
+				return;
+			}
+		}
+		if (CurrentTargetPolygon != RouteLastTargetPolygon)
+		{
+			// Checks if the target has moved slightly.
+			if (NavMesh.UpdateRoute(RouteLastTargetPolygon, CurrentTargetPolygon, Route, RouteStep))
+				RouteLastTargetPolygon = CurrentTargetPolygon;
+			else
+			{
+				// A new route is needed.
+				RouteEnd();
+				KAI_MoveTowards(Target.Pos);;
+				return;
+			}
+		}
+		// Move towards the current destination.
+		KAI_MoveTowards(Route[RouteStep].Position);
+	}
+	void SightChase()
+	{
+		int ChaseFlags = 0;
+		KAI_Chase_PreChecks(ChaseFlags);
+		KAI_MoveTowards(Target.Pos);
+		ShouldAttack();
+	}
+	void A_CustomChase()
+	{
+		if (Target)
+		{
+			if (CheckSight(Target))
+			{
+				if (RouteActive)
+					RouteEnd();
+				SightChase();
+			}
+			else
+			{
+				if (NavMesh)
+					if (RouteActive)
+						RouteChase(Target.Pos);
+					else
+					{
+						if (RouteSearch(Target.Pos))
+						{
+							RouteBegin();
+							RouteChase(Target.Pos);
+						}
+						else
+							KAI_MoveTowards(Target.Pos);
+					}
+				else
+					KAI_MoveTowards(Target.Pos);
+			}
+		}
+	}
+	override void PostBeginPlay()
+	{
+		super.PostBeginPlay();
+		let NavMeshHandler = TNavMeshHandler(EventHandler.Find('TNavMeshHandler'));
+		if (NavMeshHandler)
+			NavMesh = NavMeshHandler.NavMesh;
+		else
+			NavMesh = null;
 	}
 }
