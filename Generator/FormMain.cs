@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -80,10 +80,9 @@ public partial class FormMain : Form
             TArchive Archive = Archives[ArchiveIndex];
             int MapIndex = DataGridViewMaps.CurrentCell.RowIndex;
             TMapDefinition MapDefinition = Archive.MapDefinitions[MapIndex];
-            TNavMeshSettings NavMeshSettings = new TNavMeshSettings(ActorHeight, ActorRadius);
-            NavMesh = new TNavMesh();
-            NavMesh.Build(NavMeshSettings, MapDefinition);
-            if (NavMesh.Messages.Count > 1)
+            NavMesh = new TNavMesh(MapDefinition);
+            NavMesh.Build(ActorHeight, ActorRadius);
+            if (NavMesh.Messages.Count > 0)
                 MessageBox.Show("Navigation mesh built with messages!");
             FormViewMap Viewer = new FormViewMap();
             Viewer.View(MapDefinition, NavMesh);
@@ -129,15 +128,29 @@ public partial class FormMain : Form
             int ArchiveIndex = DataGridViewArchives.CurrentCell.RowIndex;
             TArchive Archive = Archives[ArchiveIndex];
             int MapIndex = DataGridViewMaps.CurrentCell.RowIndex;
-            TMapDefinition MapDefinition = Archive.MapDefinitions[MapIndex];
-            TextBoxMapName.Text = MapDefinition.MapName;
-            TextBoxMapNamespace.Text = MapDefinition.MapNamespaceText();
-            TextBoxMapVertex.Text = Convert.ToString(MapDefinition.MapVertex.Count);
-            TextBoxMapLinedef.Text = Convert.ToString(MapDefinition.MapLinedef.Count);
-            TextBoxMapSidedef.Text = Convert.ToString(MapDefinition.MapSidedef.Count);
-            TextBoxMapSector.Text = Convert.ToString(MapDefinition.MapSector.Count);
-            TextBoxMapThing.Text = Convert.ToString(MapDefinition.MapThing.Count);
-            ButtonGenerateNavmesh.Enabled = true;
+            if (Archive.MapDefinitions.Count > MapIndex)
+            {
+                TMapDefinition MapDefinition = Archive.MapDefinitions[MapIndex];
+                TextBoxMapName.Text = MapDefinition.MapName;
+                TextBoxMapNamespace.Text = MapDefinition.MapNamespaceText();
+                TextBoxMapVertex.Text = Convert.ToString(MapDefinition.MapVertex.Count);
+                TextBoxMapLinedef.Text = Convert.ToString(MapDefinition.MapLinedef.Count);
+                TextBoxMapSidedef.Text = Convert.ToString(MapDefinition.MapSidedef.Count);
+                TextBoxMapSector.Text = Convert.ToString(MapDefinition.MapSector.Count);
+                TextBoxMapThing.Text = Convert.ToString(MapDefinition.MapThing.Count);
+                ButtonGenerateNavmesh.Enabled = true;
+            }
+            else
+            {
+                TextBoxMapName.Text = "";
+                TextBoxMapNamespace.Text = "";
+                TextBoxMapVertex.Text = "";
+                TextBoxMapLinedef.Text = "";
+                TextBoxMapSidedef.Text = "";
+                TextBoxMapSector.Text = "";
+                TextBoxMapThing.Text = "";
+                ButtonGenerateNavmesh.Enabled = false;
+            }
         }
     }
     private void FormMain_DragDrop(object Sender, DragEventArgs E)
@@ -196,7 +209,7 @@ public partial class FormMain : Form
         if (SaveDialog.ShowDialog() == DialogResult.OK)
             using (StreamWriter Writer = new StreamWriter(SaveDialog.FileName))
             {
-                Writer.WriteLine(NavMesh.ToString());
+                Writer.Write(NavMesh.ToString());
                 Writer.Flush();
                 Writer.Close();
             }

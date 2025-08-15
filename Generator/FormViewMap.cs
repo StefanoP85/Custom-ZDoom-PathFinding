@@ -247,7 +247,7 @@ public partial class FormViewMap : Form
         }
         if ((NavMesh is not null) && (CheckBoxViewNavMesh.Checked))
         {
-            foreach (TLine Line in NavMesh.Lines)
+            foreach (TNavMeshLine Line in NavMesh.NavMeshLines)
             {
                 int V1X = (Line.A.X - PosX + 32768) >> ZoomFactor;
                 int V1Y = ((-Line.A.Y) - PosY + 32768) >> ZoomFactor;
