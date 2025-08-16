@@ -530,25 +530,12 @@ internal static class TPartition : Object
     /// <returns>True if the process is successful.</returns>
     internal static bool RemoveHoles(TPolygonGroup PolygonGroup, List<TPolygon> OutputPolygons)
     {
-        /*TPolygon Polygon = new TPolygon();
-        foreach (TNavMeshLine Line in PolygonGroup.Polygon.Lines)
-            Polygon.Points.Add(new TPoint(Line.A.X, Line.A.Y));
-        PolygonGroup.Polygon.Hole = false;*/
         // Check for the trivial case of no holes.
         if (PolygonGroup.Holes.Count == 0)
         {
             OutputPolygons.Add(PolygonGroup.Polygon);
             return true;
         }
-        /*List<TPolygon> Holes = new List<TPolygon>();
-        foreach (TNavMeshPolygon PolygonHole in PolygonGroup.Holes)
-        {
-            TPolygon Hole = new TPolygon();
-            foreach (TNavMeshLine Line in PolygonHole.Lines)
-                Hole.Points.Add(new TPoint(Line.A.X, Line.A.Y));
-            Hole.Hole = true;
-            Holes.Add(Hole);
-        }*/
         while (PolygonGroup.Holes.Count > 0)
         {
             // Find the hole point with the largest X.
@@ -879,7 +866,7 @@ internal class TGridList : Object
             GridChains[ChainNumber] = GridCount;
         GridCount++;
     }
-    internal void FillOneCell(int GridX, int GridY, List<int> Result)
+    internal void FillOneCell(int GridX, int GridY, SortedList<int, int> Result)
     {
         int ChainNumber = (GridY << 8) + GridX;
         int LastChain = GridChains[ChainNumber];
@@ -888,12 +875,12 @@ internal class TGridList : Object
             int PageNumber = LastChain >> 10;
             int PageIndex = LastChain & 1023;
             int Value = GridPages[PageNumber].Values[PageIndex];
-            if (!Result.Contains(Value))
-                Result.Add(Value);
+            if (!Result.ContainsKey(Value))
+                Result.Add(Value, Value);
             LastChain = GridPages[PageNumber].Chains[PageIndex];
         }
     }
-    internal void Fill(int MinX, int MaxX, int MinY, int MaxY, List<int> Result)
+    internal void Fill(int MinX, int MaxX, int MinY, int MaxY, SortedList<int, int> Result)
     {
         for (int Y = MinY; Y <= MaxY; Y++)
             for (int X = MinX; X <= MaxX; X++)
@@ -1110,6 +1097,7 @@ public class TNavMesh : Object
     {
         SectorLines.Clear();
         GridLinedef.Clear();
+        GridNavMeshLine.Clear();
         MapSectors3D.Clear();
         foreach (TMapSector MapSector in MapDefinition.MapSector)
         {
@@ -1227,25 +1215,26 @@ public class TNavMesh : Object
     /// <summary>
     /// Function <c>GetPolygonGroups</c> creates the list of SectorGroup from a SECTOR.
     /// </summary>
-    /// <param name="Lines"><c>Lines</c> containes the LINEDEFs of the SECTOR.</param>
+    /// <param name="VertexBegin"><c>VertexBegin</c> containes the beginning VERTEX of the LINEDEFs of the SECTOR.</param>
+    /// <param name="VertexEnd"><c>VertexBegin</c> containes the ending VERTEX of the LINEDEFs of the SECTOR.</param>
     /// <param name="PolygonGroups"><c>PolygonGroups</c> will be filled with the closed regions found.</param>
     /// <returns><c>True</c> if the process is completed successfully.</returns>
-    internal static bool GetPolygonGroups(List<TNavMeshLine> Lines, List<TPolygonGroup> PolygonGroups)
+    internal bool GetPolygonGroups(List<Int32> VertexBegin, List<Int32> VertexEnd, List<TPolygonGroup> PolygonGroups)
     {
         // If the SECTOR has less than 3 LINEDEF, then it's scrapped.
-        if (Lines.Count < 3)
+        if (VertexBegin.Count < 3)
             return false;
         // Split the closed regions of the SECTOR.
         List<TPolygon> Polygons = new List<TPolygon>();
-        bool[] CheckedLine = new bool[Lines.Count];
-        for (int I = 0; I < Lines.Count; I++)
+        bool[] CheckedLine = new bool[VertexBegin.Count];
+        for (int I = 0; I < VertexBegin.Count; I++)
             CheckedLine[I] = false;
         bool HasMoreLines;
         do
         {
             bool NotFound = true;
             int FirstLine = 0;
-            while ((NotFound) && (FirstLine < Lines.Count))
+            while ((NotFound) && (FirstLine < VertexBegin.Count))
                 if (!CheckedLine[FirstLine]) 
                     NotFound = false; 
                 else 
@@ -1253,7 +1242,7 @@ public class TNavMesh : Object
             if (!NotFound)
             {
                 TPolygon Polygon = new TPolygon();
-                Polygon.Points.Add(new TPoint(Lines[FirstLine].A.X, Lines[FirstLine].A.Y));
+                Polygon.Points.Add(new TPoint(MapDefinition.MapVertex[VertexBegin[FirstLine]].X, MapDefinition.MapVertex[VertexBegin[FirstLine]].Y));
                 CheckedLine[FirstLine] = true;
                 int CurrentLine = FirstLine;
                 int NextLine;
@@ -1261,8 +1250,8 @@ public class TNavMesh : Object
                 {
                     NotFound = true;
                     NextLine = 0;
-                    while ((NotFound) && (NextLine < Lines.Count))
-                        if (Lines[NextLine].A == Lines[CurrentLine].B)
+                    while ((NotFound) && (NextLine < VertexBegin.Count))
+                        if (VertexBegin[NextLine] == VertexEnd[CurrentLine])
                             NotFound = false;
                         else
                             NextLine++;
@@ -1272,7 +1261,7 @@ public class TNavMesh : Object
                         break;
                     if ((!NotFound) && (NextLine != FirstLine))
                     {
-                        Polygon.Points.Add(new TPoint(Lines[NextLine].A.X, Lines[NextLine].A.Y));
+                        Polygon.Points.Add(new TPoint(MapDefinition.MapVertex[VertexBegin[NextLine]].X, MapDefinition.MapVertex[VertexBegin[NextLine]].Y));
                         CheckedLine[NextLine] = true;
                         CurrentLine = NextLine;
                     }
@@ -1285,7 +1274,7 @@ public class TNavMesh : Object
                 }
             }
             HasMoreLines = false;
-            for (int I = 0; I < Lines.Count; I++)
+            for (int I = 0; I < VertexBegin.Count; I++)
                 if (!CheckedLine[I])
                     HasMoreLines = true;
         } while (HasMoreLines);
@@ -1339,7 +1328,7 @@ public class TNavMesh : Object
         if ((Polygon.HeightCeiling - Polygon.HeightFloor) < ActorHeight)
             return;
         // Check for portals.
-        List<int> Lines = new List<int>();
+        SortedList<int, int> Lines = new SortedList<int, int>();
         foreach (TNavMeshLine Line in Polygon.Lines)
         {
             // Search for the map LINEDEF, using the cached grid.
@@ -1350,8 +1339,8 @@ public class TNavMesh : Object
             int MapLinedefIndex = 0;
             while ((NotFound) && (MapLinedefIndex < Lines.Count))
             {
-                TMapVertex V1 = MapDefinition.MapVertex[MapDefinition.MapLinedef[Lines[MapLinedefIndex]].V1];
-                TMapVertex V2 = MapDefinition.MapVertex[MapDefinition.MapLinedef[Lines[MapLinedefIndex]].V2];
+                TMapVertex V1 = MapDefinition.MapVertex[MapDefinition.MapLinedef[Lines.Keys[MapLinedefIndex]].V1];
+                TMapVertex V2 = MapDefinition.MapVertex[MapDefinition.MapLinedef[Lines.Keys[MapLinedefIndex]].V2];
                 if (((Line.A.X == V1.X) && (Line.A.Y == V1.Y) && (Line.B.X == V2.X) && (Line.B.Y == V2.Y))
                     || ((Line.A.X == V2.X) && (Line.A.Y == V2.Y) && (Line.B.X == V1.X) && (Line.B.Y == V1.Y)))
                     NotFound = false;
@@ -1361,14 +1350,14 @@ public class TNavMesh : Object
             if (NotFound)
                 MapLinedefIndex = -1;
             else
-                MapLinedefIndex = Lines[MapLinedefIndex];
+                MapLinedefIndex = Lines.Keys[MapLinedefIndex];
             Line.MapLinedef = MapLinedefIndex;
             // Check for portals.
             Lines.Clear();
             GridNavMeshLine.Fill(MinX, MaxX, MinY, MaxY, Lines);
             for (int Index = 0; Index < Lines.Count; Index++)
             {
-                int I = Lines[Index];
+                int I = Lines.Keys[Index];
                 int CurrentPolygonIndex = 0;
                 int CurrentPolygonStartLine = 0;
                 bool PolygonNotFound = true;
@@ -1473,7 +1462,8 @@ public class TNavMesh : Object
     /// </summary>
     internal void ProcessMapData()
     {
-        List<TNavMeshLine> Lines = new List<TNavMeshLine>();
+        List<Int32> VertexBegin = new List<Int32>();
+        List<Int32> VertexEnd = new List<Int32>();
         List<TPolygonGroup> PolygonGroups = new List<TPolygonGroup>();
         List<TPolygon> InputPolygons = new List<TPolygon>();
         List<TPolygon> OutputPolygons = new List<TPolygon>();
@@ -1481,27 +1471,35 @@ public class TNavMesh : Object
         {
             if (MapSector.Ignored)
                 continue;
-            Lines.Clear();
+            VertexBegin.Clear();
+            VertexEnd.Clear();
             // Get the LINEDEFs using the cache.
-            foreach (Int32 MapLinedefIndex in SectorLines[MapSector.Index])
-                if ((MapDefinition.MapLinedef[MapLinedefIndex].SideFront >= 0) && (MapDefinition.MapSidedef[MapDefinition.MapLinedef[MapLinedefIndex].SideFront].Sector == MapSector.Index))
-                    Lines.Add(new TNavMeshLine(
-                        new TNavMeshPoint(MapDefinition.MapVertex[MapDefinition.MapLinedef[MapLinedefIndex].V1].X, MapDefinition.MapVertex[MapDefinition.MapLinedef[MapLinedefIndex].V1].Y),
-                        new TNavMeshPoint(MapDefinition.MapVertex[MapDefinition.MapLinedef[MapLinedefIndex].V2].X, MapDefinition.MapVertex[MapDefinition.MapLinedef[MapLinedefIndex].V2].Y)
-                    ));
-                else
-                    Lines.Add(new TNavMeshLine(
-                        new TNavMeshPoint(MapDefinition.MapVertex[MapDefinition.MapLinedef[MapLinedefIndex].V2].X, MapDefinition.MapVertex[MapDefinition.MapLinedef[MapLinedefIndex].V2].Y),
-                        new TNavMeshPoint(MapDefinition.MapVertex[MapDefinition.MapLinedef[MapLinedefIndex].V1].X, MapDefinition.MapVertex[MapDefinition.MapLinedef[MapLinedefIndex].V1].Y)
-                    ));
-            if (Lines.Count < 3)
+            if (SectorLines.TryGetValue(MapSector.Index, out List<Int32>? CachedLines))
+            {
+                foreach (Int32 MapLinedefIndex in CachedLines)
+                {
+                    if ((MapDefinition.MapLinedef[MapLinedefIndex].SideFront >= 0) && (MapDefinition.MapSidedef[MapDefinition.MapLinedef[MapLinedefIndex].SideFront].Sector == MapSector.Index))
+                    {
+                        VertexBegin.Add(MapDefinition.MapLinedef[MapLinedefIndex].V1);
+                        VertexEnd.Add(MapDefinition.MapLinedef[MapLinedefIndex].V2);
+                    }
+                    else
+                    {
+                        VertexBegin.Add(MapDefinition.MapLinedef[MapLinedefIndex].V2);
+                        VertexEnd.Add(MapDefinition.MapLinedef[MapLinedefIndex].V1);
+                    }
+                }
+            }
+            else
+                continue;
+            if (VertexBegin.Count < 3)
             {
                 Messages.Add($"Map SECTOR # {MapSector.Index} has less than 3 LINEDEFs.");
                 continue;
             }
             // Split the map sectors into a list of TPolygonGroup.
             PolygonGroups.Clear();
-            if (!GetPolygonGroups(Lines, PolygonGroups))
+            if (!GetPolygonGroups(VertexBegin, VertexEnd, PolygonGroups))
             {
                 Messages.Add($"Map SECTOR # {MapSector.Index} could not be split into regions.");
                 continue;
