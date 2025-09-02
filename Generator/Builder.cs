@@ -405,23 +405,17 @@ internal class TPartitionVertex : Object
 /// </summary>
 internal static class TPartition : Object
 {
+    internal static bool IsConvex(double P1X, double P1Y, double P2X, double P2Y, double P3X, double P3Y)
+    {
+        return (P3Y - P1Y) * (P2X - P1X) - (P3X - P1X) * (P2Y - P1Y) > 0;
+    }
     internal static bool IsConvex(TPoint P1, TPoint P2, TPoint P3)
     {
-        double Val;
-        Val = (P3.Y - P1.Y) * (P2.X - P1.X) - (P3.X - P1.X) * (P2.Y - P1.Y);
-        if (Val > 0)
-            return true;
-        else
-            return false;
+        return (P3.Y - P1.Y) * (P2.X - P1.X) - (P3.X - P1.X) * (P2.Y - P1.Y) > 0;
     }
     internal static bool IsReflex(TPoint P1, TPoint P2, TPoint P3)
     {
-        double Val;
-        Val = (P3.Y - P1.Y) * (P2.X - P1.X) - (P3.X - P1.X) * (P2.Y - P1.Y);
-        if (Val < 0)
-            return true;
-        else
-            return false;
+        return (P3.Y - P1.Y) * (P2.X - P1.X) - (P3.X - P1.X) * (P2.Y - P1.Y) < 0;
     }
     internal static bool IsInside(TPoint P1, TPoint P2, TPoint P3, TPoint Point)
     {
@@ -433,10 +427,28 @@ internal static class TPartition : Object
             return false;
         return true;
     }
+    internal static bool InCone(double P1X, double P1Y, double P2X, double P2Y, double P3X, double P3Y, double PointX, double PointY) 
+    {
+        if (IsConvex(P1X, P1Y, P2X, P2Y, P3X, P3Y))
+        {
+            if (!IsConvex(P1X, P1Y, P2X, P2Y, PointX, PointY))
+                return false;
+            if (!IsConvex(P2X, P2Y, P3X, P3Y, PointX, PointY))
+                return false;
+            return true;
+        }
+        else
+        {
+            if (IsConvex(P1X, P1Y, P2X, P2Y, PointX, PointY))
+                return true;
+            if (IsConvex(P2X, P2Y, P3X, P3Y, PointX, PointY))
+                return true;
+            return false;
+        }
+    }
     internal static bool InCone(TPoint P1, TPoint P2, TPoint P3, TPoint Point)
     {
-        bool Convex = IsConvex(P1, P2, P3);
-        if (Convex)
+        if (IsConvex(P1, P2, P3))
         {
             if (!IsConvex(P1, P2, Point))
                 return false;
@@ -1106,14 +1118,14 @@ public class TNavMesh : Object
                 MapSector.Ignored = true;
             if (MapSector.Ignored)
                 continue;
-            SectorLines.Add(MapSector.Index, new List<int>());
+            SectorLines.Add(MapSector.Index, new List<Int32>());
         }
         foreach (TMapLinedef MapLinedef in MapDefinition.MapLinedef)
         {
             if (MapLinedef.SideFront >= 0)
             {
                 int SideSector = MapDefinition.MapSidedef[MapLinedef.SideFront].Sector;
-                if (SectorLines.TryGetValue(SideSector, out List<int>? Value))
+                if (SectorLines.TryGetValue(SideSector, out List<Int32>? Value))
                     Value.Add(MapLinedef.Index);
                 // Process the 3D sectors.
                 if (CheckLinedef3D(MapLinedef))
@@ -1122,7 +1134,7 @@ public class TNavMesh : Object
             if (MapLinedef.SideBack >= 0)
             {
                 int SideSector = MapDefinition.MapSidedef[MapLinedef.SideBack].Sector;
-                if (SectorLines.TryGetValue(SideSector, out List<int>? Value))
+                if (SectorLines.TryGetValue(SideSector, out List<Int32>? Value))
                     Value.Add(MapLinedef.Index);
             }
             int MinX, MaxX, MinY, MaxY;
@@ -1130,86 +1142,6 @@ public class TNavMesh : Object
             for (int Y = MinY; Y <= MaxY; Y++)
                 for (int X = MinX; X <= MaxX; X++)
                     GridLinedef.Add(X, Y, MapLinedef.Index);
-        }
-    }
-    /// <summary>
-    /// Function <c>IsClosed</c> checks if the polygon is closed.
-    /// </summary>
-    /// <returns><c>True</c> if the polygon is closed.</returns>
-    internal static bool IsClosed(TPolygon Polygon)
-    {
-        if (Polygon.Points.Count < 3)
-            return false;
-        bool[] CheckedLine = new bool[Polygon.Points.Count];
-        for (int I = 0; I < Polygon.Points.Count; I++)
-            CheckedLine[I] = false;
-        int FirstLine = 0;
-        int CurrentLine = FirstLine;
-        do
-        {
-            CheckedLine[CurrentLine] = true;
-            bool NotFound = true;
-            int Index = 0;
-            while ((NotFound) && (Index < Polygon.Points.Count))
-                if (Polygon.Points[Index] == Polygon.Points[(CurrentLine + 1) % Polygon.Points.Count])
-                    NotFound = false;
-                else
-                    Index++;
-            if (NotFound)
-                CurrentLine = -1;
-            else
-                CurrentLine = Index;
-            if ((CurrentLine < 0) || ((CheckedLine[CurrentLine]) && (CurrentLine != FirstLine)))
-                return false;
-        } while ((CurrentLine != 0));
-        return true;
-    }
-    /// <summary>
-    /// Function <c>SortLines</c> sorts the lines in a continuous path between points.
-    /// </summary>
-    internal static void SortLines(TPolygon Polygon)
-    {
-        if (Polygon.Points.Count < 3)
-            return;
-        int[] LinesIndexes = new int[Polygon.Points.Count];
-        int CurrentIndex = 0;
-        int ActualIndex = 1;
-        LinesIndexes[0] = 0;
-        do
-        {
-            TPoint CurrentLine = Polygon.Points[(CurrentIndex + 1) % Polygon.Points.Count];
-            bool NotFound = true;
-            CurrentIndex = 0;
-            while ((NotFound) && (CurrentIndex <= Polygon.Points.Count))
-                if (Polygon.Points[(CurrentIndex) % Polygon.Points.Count] == CurrentLine)
-                    NotFound = false;
-                else
-                    CurrentIndex++;
-            if (CurrentIndex < 0)
-                return; // Only if not closed!
-            if (CurrentIndex > 0)
-            {
-                LinesIndexes[ActualIndex] = CurrentIndex;
-                ActualIndex++;
-            }
-        } while (CurrentIndex > 0);
-        for (int I = 0; I < Polygon.Points.Count; I++)
-        {
-            if (LinesIndexes[I] != I)
-            {
-                TPoint AA = Polygon.Points[LinesIndexes[I]];
-                TPoint AB = Polygon.Points[(LinesIndexes[I] + 1) % Polygon.Points.Count];
-                TPoint BA = Polygon.Points[I];
-                TPoint BB = Polygon.Points[(I + 1) % Polygon.Points.Count];
-                Polygon.Points[LinesIndexes[I]] = BA;
-                Polygon.Points[(LinesIndexes[I] + 1) % Polygon.Points.Count] = BB;
-                Polygon.Points[I] = AA;
-                Polygon.Points[(I + 1) % Polygon.Points.Count] = AB;
-                int IndexA = LinesIndexes[LinesIndexes[I]];
-                int IndexB = LinesIndexes[I];
-                LinesIndexes[LinesIndexes[I]] = IndexB;
-                LinesIndexes[I] = IndexA;
-            }
         }
     }
     /// <summary>
@@ -1224,60 +1156,708 @@ public class TNavMesh : Object
         // If the SECTOR has less than 3 LINEDEF, then it's scrapped.
         if (VertexBegin.Count < 3)
             return false;
+        List<TPolygon> Polygons = new List<TPolygon>();
+        const short MaxStack = 128;
+        short I, J;
+        bool NotFound, HasMoreIterations, AllPointsVisited;
+        short PointCount;
+        int[] Points = new int[VertexBegin.Count * 2];
+        short LineCount;
+        short[] LinesA = new short[VertexBegin.Count];
+        short[] LinesB = new short[VertexBegin.Count];
+        // Build the Points and Lines array.
+        PointCount = 0;
+        LineCount = 0;
+        for (I = 0; I < VertexBegin.Count; I++)
+        {
+            NotFound = true;
+            J = 0;
+            while ((NotFound) && (J < PointCount))
+                if (Points[J] == VertexBegin[I])
+                    NotFound = false;
+                else
+                    J++;
+            if (NotFound)
+            {
+                Points[PointCount] = VertexBegin[I];
+                LinesA[LineCount] = PointCount;
+                PointCount++;
+            }
+            else
+                LinesA[LineCount] = J;
+            NotFound = true;
+            J = 0;
+            while ((NotFound) && (J < PointCount))
+                if (Points[J] == VertexEnd[I])
+                    NotFound = false;
+                else
+                    J++;
+            if (NotFound)
+            {
+                Points[PointCount] = VertexEnd[I];
+                LinesB[LineCount] = PointCount;
+                PointCount++;
+            }
+            else
+                LinesB[LineCount] = J;
+            LineCount++;
+        }
+        // Array of point cardinality.
+        short[] PointCardinality = new short[PointCount * 2];
+        // Arrays of open points and lines.
+        bool[] OpenPoints = new bool[PointCount];
+        bool[] OpenLines = new bool[LineCount];
+        // Queue of points.
+        short[] PointQueue = new short[PointCount];
+        short PointQueueHead;
+        short PointQueueTail;
+        // Stack of meshes.
+        short[,] MeshStackPoints = new short[MaxStack, PointCount * 4];
+        short[] MeshStackCount = new short[MaxStack];
+        short MeshStackTOS;
+        // General purpose point index variables.
+        short CurrentPoint, FirstPoint, NextPoint, OtherPoint, PreviousPoint, TestPoint;
+        // General purpose line index variables.
+        short NextLine = 0, InfiniteLoopLine = -1;
+        // General purpose distance variables.
+        int NextDifference, TestDifference;
+        // General purpose angle variables.
+        double NextAngle, PreviousAngle, TestAngle;
+        // Outer perimeter variables.
+        short[] OuterPerimeterPoints = new short[PointCount];
+        short OuterPerimeterPointCount, OuterPerimeterPointStart;
+        // Chord variables.
+        short[] InnerChordPoints = new short[PointCount];
+        short InnerChordPointCount, InnerChordPointLoop;
+        short[] OuterChordPoints = new short[PointCount];
+        short OuterChordPointCount, ChordBegin, ChordEnd;
+        // Initialization.
+        for (I = 0; I < PointCount; I++)
+            OpenPoints[I] = true;
+        for (I = 0; I < LineCount; I++)
+            OpenLines[I] = true;
+        Func<int, int> GetX = (int VertexIndex) => MapDefinition.MapVertex[VertexIndex].X;
+        Func<int, int> GetY = (int VertexIndex) => MapDefinition.MapVertex[VertexIndex].Y;
+        // Polygon splitting loop.
+        do
+        {
+            // Find the left-most and bottom-most open point.
+            FirstPoint = -1;
+            for (I = 0; I < PointCount; I++)
+            {
+                if (OpenPoints[I])
+                {
+                    if (FirstPoint < 0)
+                        FirstPoint = I;
+                    else
+                        if ((GetX(Points[I]) < GetX(Points[FirstPoint])) || ((GetX(Points[I]) == GetX(Points[FirstPoint])) && (GetY(Points[I]) < GetY(Points[FirstPoint]))))
+                            FirstPoint = I;
+                }
+            }
+            PointQueue[0] = FirstPoint;
+            PointQueueHead = 0;
+            PointQueueTail = 1;
+            // Walk through all lines from the first point.
+            while (PointQueueTail > PointQueueHead)
+            {
+                CurrentPoint = PointQueue[PointQueueTail - 1];
+                if (PointQueueTail == 1)
+                {
+                    // Search the second point.
+                    NextPoint = -1;
+                    for (I = 0; I < LineCount; I++)
+                    {
+                        if ((OpenLines[I]) && ((LinesA[I] == CurrentPoint) || (LinesB[I] == CurrentPoint)))
+                        {
+                            if (LinesA[I] == CurrentPoint)
+                                TestPoint = LinesB[I];
+                            else
+                                TestPoint = LinesA[I];
+                            TestDifference = GetY(Points[TestPoint]) - GetY(Points[CurrentPoint]);
+                            if (NextPoint < 0)
+                            {
+                                NextPoint = TestPoint;
+                                NextDifference = TestDifference;
+                                NextLine = I;
+                            }
+                            else
+                            {
+                                if (GetY(Points[TestPoint]) < GetY(Points[NextPoint]))
+                                {
+                                    NextPoint = TestPoint;
+                                    NextDifference = TestDifference;
+                                    NextLine = I;
+                                }
+                            }
+                        }
+                    }
+                }
+                else
+                {
+                    PreviousPoint = PointQueue[PointQueueTail - 2];
+                    PreviousAngle = Math.Atan2(GetY(Points[CurrentPoint]) - GetY(Points[PreviousPoint]), GetX(Points[CurrentPoint]) - GetX(Points[PreviousPoint]));
+                    // Search the next points.
+                    NextPoint = -1;
+                    NextAngle = 0;
+                    for (I = 0; I < LineCount; I++)
+                    {
+                        if ((OpenLines[I]) && ((LinesA[I] == CurrentPoint) || (LinesB[I] == CurrentPoint))) 
+                        {
+                            if (LinesA[I] == CurrentPoint)
+                                TestPoint = LinesB[I];
+                            else
+                                TestPoint = LinesA[I];
+                            if (TestPoint != PreviousPoint) 
+                            {
+                                TestAngle = Math.Atan2(GetY(Points[TestPoint]) - GetY(Points[CurrentPoint]), GetX(Points[TestPoint]) - GetX(Points[CurrentPoint])) - PreviousAngle;
+                                if (TestAngle < -Math.PI)
+                                    TestAngle += Math.PI * 2;
+                                if (NextPoint < 0)
+                                {
+                                    NextPoint = TestPoint;
+                                    NextAngle = TestAngle;
+                                    NextLine = I;
+                                }
+                                else
+                                {
+                                    if (TestAngle < NextAngle)
+                                    {
+                                        NextPoint = TestPoint;
+                                        NextAngle = TestAngle;
+                                        NextLine = I;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                if (NextPoint >= 0)
+                {
+                    NotFound = true;
+                    OuterPerimeterPointStart = PointQueueHead;
+                    while ((NotFound) && (OuterPerimeterPointStart < PointQueueTail))
+                        if (PointQueue[OuterPerimeterPointStart] == NextPoint)
+                            NotFound = false;
+                        else
+                            OuterPerimeterPointStart++;
+                    if (NotFound)
+                    {
+                        PointQueue[PointQueueTail] = NextPoint;
+                        PointQueueTail++;
+                    }
+                    else
+                    {
+                        OuterPerimeterPointCount = 0;
+                        for (I = OuterPerimeterPointStart; I < PointQueueTail; I++)
+                        {
+                            OuterPerimeterPoints[OuterPerimeterPointCount] = PointQueue[I];
+                            OuterPerimeterPointCount++;
+                        }
+                        // Push the outer perimeter on the stack.
+                        MeshStackTOS = 0;
+                        MeshStackCount[MeshStackTOS] = OuterPerimeterPointCount;
+                        for (I = 0; I < OuterPerimeterPointCount; I++)
+                            MeshStackPoints[MeshStackTOS, I] = OuterPerimeterPoints[I];
+                        while (MeshStackTOS >= 0)
+                        {
+                            // Calculate the point cardinality.
+                            for (I = 0; I < MeshStackCount[MeshStackTOS]; I++)
+                                PointCardinality[I] = 2; // The default previous and next lines attached to each point.
+                            for (I = 0; I < MeshStackCount[MeshStackTOS]; I++)
+                            {
+                                CurrentPoint = MeshStackPoints[MeshStackTOS, I];
+                                NextPoint = MeshStackPoints[MeshStackTOS, (I + 1) % MeshStackCount[MeshStackTOS]];
+                                PreviousPoint = MeshStackPoints[MeshStackTOS, (I + MeshStackCount[MeshStackTOS] - 1) % MeshStackCount[MeshStackTOS]];
+                                for (J = 0; J < LineCount; J++)
+                                {
+                                    if (((LinesA[J] == CurrentPoint) && (LinesB[J] != NextPoint) && (LinesB[J] != PreviousPoint)) || ((LinesB[J] == CurrentPoint) && (LinesA[J] != NextPoint) && (LinesA[J] != PreviousPoint)))
+                                    {
+                                        if (LinesA[J] == CurrentPoint)
+                                            TestPoint = LinesB[J];
+                                        else
+                                            TestPoint = LinesA[J];
+                                        if (TPartition.InCone(GetX(Points[PreviousPoint]), GetY(Points[PreviousPoint]), GetX(Points[CurrentPoint]), GetY(Points[CurrentPoint]), GetX(Points[NextPoint]), GetY(Points[NextPoint]), GetX(Points[TestPoint]), GetY(Points[TestPoint])))
+                                            PointCardinality[I]++;
+                                    }
+                                }
+                            }
+                            // Search the left-most and bottom-most point of cardinality greather than 2, if exists.
+                            InnerChordPointLoop = -1;
+                            FirstPoint = -1;
+                            for (I = 0; I < MeshStackCount[MeshStackTOS]; I++)
+                            {
+                                if (PointCardinality[I] > 2)
+                                {
+                                    TestPoint = MeshStackPoints[MeshStackTOS, I];
+                                    if (FirstPoint < 0)
+                                    {
+                                        FirstPoint = TestPoint;
+                                    }
+                                    else
+                                    {
+                                        if ((GetX(Points[TestPoint]) < GetX(Points[FirstPoint])) || ((GetX(Points[TestPoint]) == GetX(Points[FirstPoint])) && (GetY(Points[TestPoint]) < GetY(Points[FirstPoint]))))
+                                            FirstPoint = TestPoint;
+                                    }
+                                }
+                            }
+                            if (FirstPoint >= 0)
+                            {
+                                InnerChordPoints[0] = FirstPoint;
+                                InnerChordPointCount = 1;
+                                HasMoreIterations = true;
+                                while (HasMoreIterations)
+                                {
+                                    CurrentPoint = InnerChordPoints[InnerChordPointCount - 1];
+                                    if (InnerChordPointCount == 1)
+                                    {
+                                        NotFound = true;
+                                        I = 0;
+                                        while ((NotFound) && (I < MeshStackCount[MeshStackTOS]))
+                                            if (MeshStackPoints[MeshStackTOS, I] == FirstPoint)
+                                                NotFound = false;
+                                            else
+                                                I++;
+                                        OtherPoint = MeshStackPoints[MeshStackTOS, (I + 1) % MeshStackCount[MeshStackTOS]];
+                                        PreviousPoint = MeshStackPoints[MeshStackTOS, (I + MeshStackCount[MeshStackTOS] - 1) % MeshStackCount[MeshStackTOS]];
+                                        PreviousAngle = Math.Atan2(GetY(Points[CurrentPoint]) - GetY(Points[PreviousPoint]), GetX(Points[CurrentPoint]) - GetX(Points[PreviousPoint]));
+                                        NextAngle = Math.Atan2(GetY(Points[OtherPoint]) - GetY(Points[CurrentPoint]), GetX(Points[OtherPoint]) - GetX(Points[CurrentPoint]));
+                                        NextPoint = -1;
+                                        for (I = 0; I < LineCount; I++)
+                                        {
+                                            if ((OpenLines[I]) && ((LinesA[I] == CurrentPoint) || (LinesB[I] == CurrentPoint)))
+                                            {
+                                                if (LinesA[I] == CurrentPoint)
+                                                    TestPoint = LinesB[I];
+                                                else
+                                                    TestPoint = LinesA[I];
+                                                if ((TestPoint != PreviousPoint) && (TestPoint != OtherPoint) && (TPartition.InCone(GetX(Points[PreviousPoint]), GetY(Points[PreviousPoint]), GetX(Points[CurrentPoint]), GetY(Points[CurrentPoint]), GetX(Points[OtherPoint]), GetY(Points[OtherPoint]), GetX(Points[TestPoint]), GetY(Points[TestPoint]))))
+                                                {
+                                                    TestAngle = Math.Atan2(GetY(Points[TestPoint]) - GetY(Points[FirstPoint]), GetX(Points[TestPoint]) - GetX(Points[FirstPoint])) - PreviousAngle;
+                                                    if (TestAngle < -Math.PI)
+                                                        TestAngle += Math.PI * 2;
+                                                    if (NextPoint < 0)
+                                                    {
+                                                        NextPoint = TestPoint;
+                                                        NextAngle = TestAngle;
+                                                        NextLine = I;
+                                                    }
+                                                    else
+                                                    {
+                                                        if (TestAngle < NextAngle)
+                                                        {
+                                                            NextPoint = TestPoint;
+                                                            NextAngle = TestAngle;
+                                                            NextLine = I;
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    else
+                                    {
+                                        PreviousPoint = InnerChordPoints[InnerChordPointCount - 2];
+                                        PreviousAngle = Math.Atan2(GetY(Points[CurrentPoint]) - GetY(Points[PreviousPoint]), GetX(Points[CurrentPoint]) - GetX(Points[PreviousPoint]));
+                                        NextPoint = -1;
+                                        NextAngle = 0;
+                                        for (I = 0; I < LineCount; I++)
+                                        {
+                                            if ((OpenLines[I]) && ((LinesA[I] == CurrentPoint) || (LinesB[I] == CurrentPoint)))
+                                            {
+                                                if (LinesA[I] == CurrentPoint)
+                                                    TestPoint = LinesB[I];
+                                                else
+                                                    TestPoint = LinesA[I];
+                                                if (TestPoint != PreviousPoint)
+                                                {
+                                                    TestAngle = Math.Atan2(GetY(Points[TestPoint]) - GetY(Points[FirstPoint]), GetX(Points[TestPoint]) - GetX(Points[FirstPoint])) - PreviousAngle;
+                                                    if (TestAngle < -Math.PI)
+                                                        TestAngle += Math.PI * 2;
+                                                    if (NextPoint < 0)
+                                                    {
+                                                        NextPoint = TestPoint;
+                                                        NextAngle = TestAngle;
+                                                        NextLine = I;
+                                                    }
+                                                    else
+                                                    {
+                                                        if (TestAngle < NextAngle)
+                                                        {
+                                                            NextPoint = TestPoint;
+                                                            NextAngle = TestAngle;
+                                                            NextLine = I;
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    if (NextPoint >= 0)
+                                    {
+                                        OpenLines[NextLine] = false;
+                                        InnerChordPoints[InnerChordPointCount] = NextPoint;
+                                        InnerChordPointCount++;
+                                        NotFound = true;
+                                        I = 0;
+                                        while ((NotFound) && (I < MeshStackCount[MeshStackTOS]))
+                                            if (MeshStackPoints[MeshStackTOS, I] == NextPoint)
+                                                NotFound = false;
+                                            else
+                                                I++;
+                                        if (NotFound)
+                                        {
+                                            NotFound = true;
+                                            I = 1;
+                                            while ((NotFound) && (I < InnerChordPointCount - 1))
+                                                if (InnerChordPoints[I] == NextPoint)
+                                                    NotFound = false;
+                                                else
+                                                    I++;
+                                            if (NotFound)
+                                                OpenPoints[NextPoint] = false;
+                                            else
+                                            {
+                                                InnerChordPointLoop = I;
+                                                HasMoreIterations = false;
+                                            }
+                                        }
+                                        else
+                                        {
+                                            HasMoreIterations = false;
+                                        }
+                                    }
+                                    else
+                                    {
+                                        if (NextLine == InfiniteLoopLine)
+                                            return false; // Bad SECTOR lines.
+                                        OpenLines[NextLine] = false;
+                                        InfiniteLoopLine = NextLine;
+                                        AllPointsVisited = true;
+                                        for (I = 0; I < LineCount; I++)
+                                            if ((OpenLines[I]) && ((LinesA[I] == CurrentPoint) || (LinesB[I] == CurrentPoint)))
+                                                AllPointsVisited = false;
+                                        if (AllPointsVisited)
+                                        {
+                                            OpenPoints[CurrentPoint] = false;
+                                            InnerChordPointCount++;
+                                        }
+                                        if (InnerChordPointCount == 0)
+                                            HasMoreIterations = false;
+                                    }
+                                }
+                                if (InnerChordPointCount > 0) 
+                                {
+                                    if (InnerChordPointLoop > 0)
+                                    {
+                                        return false; // I need more study and work to finish this part.
+                                    }
+                                    else
+                                    {
+                                        ChordBegin = 0;
+                                        while (MeshStackPoints[MeshStackTOS, ChordBegin] != InnerChordPoints[0])
+                                            ChordBegin++;
+                                        PreviousPoint = MeshStackPoints[MeshStackTOS, (ChordBegin + MeshStackCount[MeshStackTOS] - 1) % MeshStackCount[MeshStackTOS]];
+                                        ChordEnd = (short)(MeshStackCount[MeshStackTOS] - 1);
+                                        while (MeshStackPoints[MeshStackTOS, ChordEnd] != InnerChordPoints[InnerChordPointCount - 1])
+                                            ChordEnd--;
+                                        NextPoint = MeshStackPoints[MeshStackTOS, (ChordEnd + 1) % MeshStackCount[MeshStackTOS]];
+                                        OuterChordPointCount = (short)(ChordEnd - ChordBegin + 1);
+                                        if (OuterChordPointCount < 0)
+                                        {
+                                            OuterChordPointCount = (short)(OuterChordPointCount + MeshStackCount[MeshStackTOS]);
+                                            for (I = ChordBegin; I <= ChordEnd + MeshStackCount[MeshStackTOS]; I++)
+                                                OuterChordPoints[I - ChordBegin] = MeshStackPoints[MeshStackTOS, I % MeshStackCount[MeshStackTOS]];
+                                        }
+                                        else
+                                        {
+                                            for (I = ChordBegin; I <= ChordEnd; I++)
+                                                OuterChordPoints[I - ChordBegin] = MeshStackPoints[MeshStackTOS, I];
+                                        }
+                                        if (InnerChordPointCount > OuterChordPointCount)
+                                        {
+                                            MeshStackCount[MeshStackTOS] = (short)(MeshStackCount[MeshStackTOS] - OuterChordPointCount + InnerChordPointCount);
+                                            for (I = (short)(MeshStackCount[MeshStackTOS] - 1); I >= ChordEnd; I--)
+                                                MeshStackPoints[MeshStackTOS, I + InnerChordPointCount - OuterChordPointCount] = MeshStackPoints[MeshStackTOS, I];
+                                        }
+                                        else if (InnerChordPointCount < OuterChordPointCount)
+                                        {
+                                            MeshStackCount[MeshStackTOS] = (short)(MeshStackCount[MeshStackTOS] - OuterChordPointCount + InnerChordPointCount);
+                                            if (ChordBegin > ChordEnd)
+                                                for (I = ChordEnd; I <= ChordBegin; I++)
+                                                    MeshStackPoints[MeshStackTOS, I - ChordEnd] = MeshStackPoints[MeshStackTOS, I];
+                                            else
+                                                for (I = (short)(ChordBegin + 1); I < MeshStackCount[MeshStackTOS]; I++)
+                                                    MeshStackPoints[MeshStackTOS, I] = MeshStackPoints[MeshStackTOS, I + OuterChordPointCount - InnerChordPointCount];
+                                        }
+                                        for (I = 1; I < InnerChordPointCount - 1; I++)
+                                            MeshStackPoints[MeshStackTOS, (ChordBegin + I) % MeshStackCount[MeshStackTOS]] = InnerChordPoints[I];
+                                        MeshStackTOS++;
+                                        MeshStackCount[MeshStackTOS] = (short)(InnerChordPointCount + OuterChordPointCount - 2);
+                                        TestAngle = Math.Atan2(GetY(Points[NextPoint]) - GetY(Points[InnerChordPoints[InnerChordPointCount - 1]]), GetX(Points[NextPoint]) - GetX(Points[InnerChordPoints[InnerChordPointCount - 1]]));
+                                        if (TestAngle < 0)
+                                        {
+                                            for (I = 0; I < OuterChordPointCount; I++)
+                                                MeshStackPoints[MeshStackTOS, I] = OuterChordPoints[I];
+                                            for (I = 1; I < InnerChordPointCount - 1; I++)
+                                                MeshStackPoints[MeshStackTOS, OuterChordPointCount + I - 1] = InnerChordPoints[InnerChordPointCount - I - 1];
+                                        }
+                                        else
+                                        {
+                                            for (I = 0; I < InnerChordPointCount; I++)
+                                                MeshStackPoints[MeshStackTOS, I] = InnerChordPoints[InnerChordPointCount - I - 1];
+                                            for (I = 1; I < OuterChordPointCount - 1; I++)
+                                                MeshStackPoints[MeshStackTOS, InnerChordPointCount + I - 1] = OuterChordPoints[I];
+                                        }
+                                    }
+                                }
+                                else 
+                                {
+                                    return false; // I need more study and work to finish this part.
+                                }
+                            }
+                            else 
+                            {
+                                TPolygon Polygon = new TPolygon();
+                                for (I = 0; I < MeshStackCount[MeshStackTOS]; I++)
+                                    Polygon.Points.Add(new TPoint(GetX(Points[MeshStackPoints[MeshStackTOS, I]]), GetY(Points[MeshStackPoints[MeshStackTOS, I]])));
+                                Polygon.Hole = false;
+                                Polygons.Add(Polygon);
+                                MeshStackTOS--;
+                            }
+                        }
+                        for (J = OuterPerimeterPointStart; J <= PointQueueTail; J++)
+                            for (I = 0; I < LineCount; I++)
+                                if (((LinesA[I] == OuterPerimeterPoints[(J + OuterPerimeterPointCount - 1) % OuterPerimeterPointCount]) && (LinesB[I] == OuterPerimeterPoints[J % OuterPerimeterPointCount])) || ((LinesA[I] == OuterPerimeterPoints[J % OuterPerimeterPointCount]) && (LinesB[I] == OuterPerimeterPoints[(J + OuterPerimeterPointCount - 1) % OuterPerimeterPointCount])))
+                                    OpenLines[I] = false;
+                        for (J = 0; J < OuterPerimeterPointCount; J++)
+                        {
+                            AllPointsVisited = true;
+                            for (I = 0; I < LineCount; I++)
+                                if ((OpenLines[I]) && ((LinesA[I] == OuterPerimeterPoints[J]) || (LinesB[I] == OuterPerimeterPoints[J])))
+                                    AllPointsVisited = false;
+                            if (AllPointsVisited)
+                                OpenPoints[OuterPerimeterPoints[J]] = false;
+                        }
+                        PointQueueTail = OuterPerimeterPointStart;
+                    }
+                }
+                else
+                {
+                    if (NextLine == InfiniteLoopLine)
+                        return false; // Bad SECTOR lines.
+                    OpenLines[NextLine] = false;
+                    InfiniteLoopLine = NextLine;
+                    AllPointsVisited = true;
+                    for (I = 0; I < LineCount; I++)
+                        if ((OpenLines[I]) && ((LinesA[I] == CurrentPoint) || (LinesB[I] == CurrentPoint)))
+                        {
+                            AllPointsVisited = false;
+                            break;
+                        }
+                    if (AllPointsVisited)
+                    {
+                        OpenPoints[CurrentPoint] = false;
+                        PointQueueTail--;
+                    } 
+                }
+            }
+            // Check if all points are closed.
+            AllPointsVisited = true;
+            for (I = 0; I < PointCount; I++)
+                if (OpenPoints[I])
+                {
+                    AllPointsVisited = false;
+                    break;
+                }
+        } while (!AllPointsVisited);
+        if (Polygons.Count == 0)
+            return false;
+        if (Polygons.Count == 1)
+        {
+            // Only one closed region.
+            TPolygonGroup PolygonGroup = new TPolygonGroup(Polygons[0]);
+            PolygonGroups.Add(PolygonGroup);
+        }
+        else
+        {
+            // Multiple closed regions: check the holes and nested regions.
+            int[] PolygonDepthLevel = new int[Polygons.Count];
+            int MaxDepthLevel = 0;
+            for (I = 0; I < Polygons.Count; I++)
+                PolygonDepthLevel[I] = 0;
+            for (I = 0; I < Polygons.Count; I++)
+                for ( J = 0; J < Polygons.Count; J++)
+                    if (I != J)
+                        if (PolygonInsidePolygon(Polygons[I], Polygons[J]))
+                        {
+                            PolygonDepthLevel[J]++;
+                            if (PolygonDepthLevel[J] > MaxDepthLevel)
+                                MaxDepthLevel = PolygonDepthLevel[J];
+                        }
+            for (int DepthLevel = 0; DepthLevel <= MaxDepthLevel; DepthLevel += 2)
+                for (I = 0; I < Polygons.Count; I++)
+                    if (PolygonDepthLevel[I] == DepthLevel)
+                    {
+                        TPolygonGroup PolygonGroup = new TPolygonGroup(Polygons[I]);
+                        for (J = 0; J < Polygons.Count; J++)
+                            if ((I != J) && (PolygonInsidePolygon(Polygons[I], Polygons[J])))
+                            {
+                                Polygons[J].Hole = true;
+                                PolygonGroup.Holes.Add(Polygons[J]);
+                            }
+                        PolygonGroups.Add(PolygonGroup);
+                    }
+        }
+        return true;
+    }
+    /*internal bool GetPolygonGroups(List<Int32> VertexBegin, List<Int32> VertexEnd, List<TPolygonGroup> PolygonGroups)
+    {
+        // If the SECTOR has less than 3 LINEDEF, then it's scrapped.
+        if (VertexBegin.Count < 3)
+            return false;
         // Split the closed regions of the SECTOR.
         List<TPolygon> Polygons = new List<TPolygon>();
-        bool[] CheckedLine = new bool[VertexBegin.Count];
+        int[] PolygonNumber = new int[VertexBegin.Count];
+        int[] PolygonLineNumber = new int[VertexBegin.Count];
+        int[] BeginningOccurs = new int[VertexBegin.Count];
+        int[] NextLines = new int[VertexBegin.Count];
+        int CurrentPolygonNumber = -1;
+        int CurrentPolygonLineNumber;
         for (int I = 0; I < VertexBegin.Count; I++)
-            CheckedLine[I] = false;
-        bool HasMoreLines;
+        {
+            BeginningOccurs[I] = 0;
+            NextLines[I] = -1;
+            PolygonNumber[I] = -1;
+            PolygonLineNumber[I] = -1;
+        }
+        for (int I = 0; I < VertexBegin.Count; I++)
+        {
+            for (int J = 0; J < VertexBegin.Count; J++)
+                if (VertexBegin[I] == VertexBegin[J])
+                    BeginningOccurs[I]++;
+        }
+        int PolygonLoopIndex;
         do
         {
             bool NotFound = true;
-            int FirstLine = 0;
-            while ((NotFound) && (FirstLine < VertexBegin.Count))
-                if (!CheckedLine[FirstLine]) 
-                    NotFound = false; 
-                else 
-                    FirstLine++;
+            int Index = 0;
+            while ((NotFound) && (Index < VertexBegin.Count))
+                if (PolygonNumber[Index] < 0)
+                    NotFound = false;
+                else
+                    Index++;
             if (!NotFound)
             {
-                TPolygon Polygon = new TPolygon();
-                Polygon.Points.Add(new TPoint(MapDefinition.MapVertex[VertexBegin[FirstLine]].X, MapDefinition.MapVertex[VertexBegin[FirstLine]].Y));
-                CheckedLine[FirstLine] = true;
-                int CurrentLine = FirstLine;
-                int NextLine;
-                do
+                PolygonLoopIndex = Index;
+                int BeginningVertex = VertexBegin[PolygonLoopIndex];
+                int NextVertex = VertexEnd[PolygonLoopIndex];
+                CurrentPolygonNumber++;
+                CurrentPolygonLineNumber = 0;
+                int CurrentNextLine = 0;
+                NextLines[PolygonLoopIndex] = CurrentNextLine;
+                PolygonNumber[PolygonLoopIndex] = CurrentPolygonNumber;
+                PolygonLineNumber[PolygonLoopIndex] = CurrentPolygonLineNumber;
+                while (NextVertex != BeginningVertex)
                 {
                     NotFound = true;
-                    NextLine = 0;
-                    while ((NotFound) && (NextLine < VertexBegin.Count))
-                        if (VertexBegin[NextLine] == VertexEnd[CurrentLine])
+                    Index = 0;
+                    while ((NotFound) && (Index < VertexBegin.Count))
+                        if ((VertexBegin[Index] == NextVertex) && (PolygonNumber[Index] < 0))
                             NotFound = false;
                         else
-                            NextLine++;
+                            Index++;
                     if (NotFound)
-                        return false;
-                    if ((!NotFound) && (CheckedLine[NextLine]))
-                        break;
-                    if ((!NotFound) && (NextLine != FirstLine))
+                        return false; // Non-closed SECTOR.
+                    else
                     {
-                        Polygon.Points.Add(new TPoint(MapDefinition.MapVertex[VertexBegin[NextLine]].X, MapDefinition.MapVertex[VertexBegin[NextLine]].Y));
-                        CheckedLine[NextLine] = true;
-                        CurrentLine = NextLine;
+                        CurrentNextLine++;
+                        NextLines[Index] = CurrentNextLine;
+                        CurrentPolygonLineNumber++;
+                        PolygonNumber[Index] = CurrentPolygonNumber;
+                        PolygonLineNumber[Index] = CurrentPolygonLineNumber;
+                        NextVertex = VertexEnd[Index];
                     }
-                } while ((NextLine >= 0) && (NextLine != FirstLine));
-                if (IsClosed(Polygon))
+                }
+                bool SplittingLoop = false;
+                for (int I = 0; I < VertexBegin.Count; I++)
                 {
-                    SortLines(Polygon);
-                    Polygon.Hole = false;
-                    Polygons.Add(Polygon);
+                    if (BeginningOccurs[I] > 1)
+                        SplittingLoop = true;
+                }
+                while (SplittingLoop)
+                {
+                    SplittingLoop = false;
+                    for (int I = 0; I < VertexBegin.Count; I++)
+                    {
+                        if (BeginningOccurs[I] > 1)
+                        {
+                            int BeginPosition = NextLines[I];
+                            int J = VertexBegin.Count - 1;
+                            while ((J >= 0) && ((VertexBegin[J] != VertexBegin[I]) || (NextLines[J] < 0)))
+                                J--;
+                            if (J < 0)
+                                break;
+                            int EndPosition = NextLines[J];
+                            if (EndPosition <= BeginPosition)
+                                break;
+                            BeginningOccurs[I]--;
+                            BeginningOccurs[J]--;
+                            SplittingLoop = true;
+                            CurrentPolygonNumber++;
+                            int OldPolygonLineNumber = 0;
+                            int NewPolygonLineNumber = 0;
+                            for (J = 0; J < VertexBegin.Count; J++)
+                            {
+                                NotFound = true;
+                                Index = 0;
+                                while ((NotFound) && (Index < VertexBegin.Count))
+                                    if (NextLines[Index] == J)
+                                        NotFound = false;
+                                    else
+                                        Index++;
+                                if (NotFound)
+                                    break;
+                                if ((NextLines[Index] >= BeginPosition) && (NextLines[Index] < EndPosition))
+                                {
+                                    PolygonNumber[Index] = CurrentPolygonNumber;
+                                    PolygonLineNumber[Index] = NewPolygonLineNumber;
+                                    NewPolygonLineNumber++;
+                                }
+                                else
+                                {
+                                    if (PolygonNumber[Index] == (CurrentPolygonNumber - 1))
+                                    {
+                                        PolygonLineNumber[Index] = OldPolygonLineNumber;
+                                        OldPolygonLineNumber++;
+                                    }
+                                }
+                            }
+                            break;
+                        }
+                    }
                 }
             }
-            HasMoreLines = false;
-            for (int I = 0; I < VertexBegin.Count; I++)
-                if (!CheckedLine[I])
-                    HasMoreLines = true;
-        } while (HasMoreLines);
+            else
+                PolygonLoopIndex = VertexBegin.Count;
+        } while (PolygonLoopIndex < VertexBegin.Count);
+        for (int I = 0; I <= CurrentPolygonNumber; I++)
+        {
+            int PolygonLineCount = 0;
+            for (int J = 0; J < VertexBegin.Count; J++)
+                if (PolygonNumber[J] == I)
+                    PolygonLineCount++;
+            TPolygon Polygon = new TPolygon();
+            for (int J = 0; J < PolygonLineCount; J++)
+            {
+                for (int K = 0; K < VertexBegin.Count; K++)
+                {
+                    if ((PolygonNumber[K] == I) && (PolygonLineNumber[K] == J))
+                        Polygon.Points.Add(new TPoint(MapDefinition.MapVertex[VertexBegin[K]].X, MapDefinition.MapVertex[VertexBegin[K]].Y));
+                }
+            }
+            Polygon.Hole = false;
+            Polygons.Add(Polygon);
+        }
         if (Polygons.Count == 0)
             return false;
         if (Polygons.Count == 1)
@@ -1317,7 +1897,7 @@ public class TNavMesh : Object
                     }
         }
         return true;
-    }
+    }*/
     /// <summary>
     /// Function <c>ProcessPolygonMesh</c> adds a mesh to the navigation mesh.
     /// </summary>
@@ -1478,6 +2058,14 @@ public class TNavMesh : Object
             {
                 foreach (Int32 MapLinedefIndex in CachedLines)
                 {
+                    int FrontSector = -1;
+                    if (MapDefinition.MapLinedef[MapLinedefIndex].SideFront >= 0)
+                        FrontSector = MapDefinition.MapSidedef[MapDefinition.MapLinedef[MapLinedefIndex].SideFront].Sector;
+                    int BackSector = -2;
+                    if (MapDefinition.MapLinedef[MapLinedefIndex].SideBack >= 0)
+                        BackSector = MapDefinition.MapSidedef[MapDefinition.MapLinedef[MapLinedefIndex].SideBack].Sector;
+                    if (FrontSector == BackSector)
+                        continue;
                     if ((MapDefinition.MapLinedef[MapLinedefIndex].SideFront >= 0) && (MapDefinition.MapSidedef[MapDefinition.MapLinedef[MapLinedefIndex].SideFront].Sector == MapSector.Index))
                     {
                         VertexBegin.Add(MapDefinition.MapLinedef[MapLinedefIndex].V1);
@@ -1511,8 +2099,8 @@ public class TNavMesh : Object
                 OutputPolygons.Clear();
                 if (TPartition.RemoveHoles(PolygonGroup, InputPolygons))
                 {
-                    foreach (TPolygon Polygon1 in InputPolygons)
-                        if (!TPartition.ConvexPartition_HM(Polygon1, OutputPolygons))
+                    foreach (TPolygon Polygon in InputPolygons)
+                        if (!TPartition.ConvexPartition_HM(Polygon, OutputPolygons))
                             Messages.Add($"Map SECTOR # {MapSector.Index} could be processed incompletely.");
                 }
                 else
