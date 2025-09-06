@@ -983,42 +983,6 @@ public class TNavMesh : Object
         Messages = new List<String>();
         Cells = new List<Int32>[1, 1];
     }
-    internal static bool LineIntersecTNavMeshLine(TNavMeshLine Line1, TNavMeshLine Line2)
-    {
-        TOrientation CalcDirection(TNavMeshPoint A, TNavMeshPoint B, TNavMeshPoint C)
-        {
-            int CrossProduct = (B.Y - A.Y) * (C.X - B.X) - (B.X - A.X) * (C.Y - B.Y);
-            if (CrossProduct == 0)
-                return TOrientation.Collinear;
-            else
-                if (CrossProduct < 0)
-                return TOrientation.CounterClockwise;
-            else
-                return TOrientation.Clockwise;
-        }
-        bool PointOnLine(TNavMeshLine Line, TNavMeshPoint Point)
-        {
-            if ((Point.X <= Math.Max(Line.A.X, Line.B.X)) && (Point.X >= Math.Min(Line.A.X, Line.B.X)) && (Point.Y <= Math.Max(Line.A.Y, Line.B.Y)) && (Point.Y >= Math.Min(Line.A.Y, Line.B.Y)))
-                return true;
-            else
-                return false;
-        }
-        TOrientation Direction1 = CalcDirection(Line1.A, Line1.B, Line2.A);
-        TOrientation Direction2 = CalcDirection(Line1.A, Line1.B, Line2.B);
-        TOrientation Direction3 = CalcDirection(Line2.A, Line2.B, Line1.A);
-        TOrientation Direction4 = CalcDirection(Line2.A, Line2.B, Line1.B);
-        if ((Direction1 != Direction2) && (Direction3 != Direction4))
-            return true;
-        if ((Direction1 == TOrientation.Collinear) && (PointOnLine(Line1, Line2.A)))
-            return true;
-        if ((Direction2 == TOrientation.Collinear) && (PointOnLine(Line1, Line2.B)))
-            return true;
-        if ((Direction3 == TOrientation.Collinear) && (PointOnLine(Line2, Line1.A)))
-            return true;
-        if ((Direction4 == TOrientation.Collinear) && (PointOnLine(Line2, Line1.B)))
-            return true;
-        return false;
-    }
     /// <summary>
     /// Function <c>PointInsidePolygon</c> checks if a point is contained in another polygon.
     /// </summary>
@@ -1878,7 +1842,7 @@ public class TNavMesh : Object
                         BackSector = MapDefinition.MapSidedef[MapDefinition.MapLinedef[MapLinedefIndex].SideBack].Sector;
                     if (FrontSector == BackSector)
                         continue;
-                    if ((MapDefinition.MapLinedef[MapLinedefIndex].SideFront >= 0) && (MapDefinition.MapSidedef[MapDefinition.MapLinedef[MapLinedefIndex].SideFront].Sector == MapSector.Index))
+                    if (FrontSector == MapSector.Index)
                     {
                         VertexBegin.Add(MapDefinition.MapLinedef[MapLinedefIndex].V1);
                         VertexEnd.Add(MapDefinition.MapLinedef[MapLinedefIndex].V2);
@@ -2055,4 +2019,3 @@ public class TNavMesh : Object
         return SB.ToString();
     }
 }
-
