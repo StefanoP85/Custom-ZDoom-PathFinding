@@ -250,7 +250,7 @@ class TNavMesh : TCustomNavMesh
 		return True;
 	}
 	// Searchs the polygon index in NavMeshPolygons, that contains the given point; -1 if not found.
-	int SearchPolygon(Vector3 Point, int SectorNumber = -1)
+	int SearchPolygon(Vector3 Point)
 	{
 		// Use the cells partitioning system if available.
 		int CellPointX = Point.X + GridOffset;
@@ -271,10 +271,10 @@ class TNavMesh : TCustomNavMesh
 			}
 		}
 		// Use the "Per-sector polygons chain" if available.
-		if ((PolygonChain) && (SectorNumber >= 0))
+		if (PolygonChain)
 		{
 			Array<int> Polygons;
-			PolygonChain.Fill(SectorNumber, Polygons);
+			PolygonChain.Fill(Level.PointInSector(Point.XY).Index(), Polygons);
 			for (int I = 0; I < Polygons.Size(); I++)
 				if (PointInPolygon(Point, Polygons[I]))
 					return Polygons[I];
@@ -806,9 +806,9 @@ class TPartition: TCustomNavMesh
 		int NumVertices = InputPolygon.Points.Size();
 		Array<TPartitionVertex> Vertices;
 		Vertices.Reserve(NumVertices);
-		TPartitionVertex Ear = null;
 		for (int I = 0; I < NumVertices; I++)
 			Vertices[I] = TPartitionVertex.Create(InputPolygon.Points[I]);
+		TPartitionVertex Ear = Vertices[0];
 		for (int I = 0; I < NumVertices; I++)
 		{
 			Vertices[I].IsActive = True;
@@ -1693,7 +1693,7 @@ class TNavMeshBuilder: TCustomNavMesh
 								TPolygon Polygon = TPolygon.Create();
 								for (I = 0; I < MeshStackCount[MeshStackTOS]; I++)
 									Polygon.Points.Push(TPoint.Create(GetX(Points[MeshStackPoints[MeshStackTOS * StackLength + I]]), GetY(Points[MeshStackPoints[MeshStackTOS * StackLength + I]])));
-								Polygon.Hole = False;
+								Polygon.SetHole(False);
 								Polygons.Push(Polygon);
 								MeshStackTOS--;
 							}
@@ -1775,7 +1775,7 @@ class TNavMeshBuilder: TCustomNavMesh
 						for (J = 0; J < Polygons.Size(); J++)
 							if ((I != J) && (PolygonInsidePolygon(Polygons[I], Polygons[J])))
 							{
-								Polygons[J].Hole = True;
+								Polygons[J].SetHole(True);
 								PolygonGroup.Holes.Push(Polygons[J]);
 							}
 						PolygonGroups.Push(PolygonGroup);
@@ -1783,7 +1783,7 @@ class TNavMeshBuilder: TCustomNavMesh
 		}
 		return True;
 	}
-	void ProcessPolygonMesh(TNavMeshPolygon Polygon, in Array<TNavMeshLine> PolygonLines)
+	void ProcessPolygonMesh(TNavMeshPolygon Polygon, in Array<TNavMeshLine> PolygonLines, int SectorNumber)
 	{
 		// Check if there is enough vertical space.
 		if ((Polygon.HeightCeiling - Polygon.HeightFloor) < ActorHeight)
@@ -1791,22 +1791,22 @@ class TNavMeshBuilder: TCustomNavMesh
 		// Check for portals.
 		int MinX, MaxX, MinY, MaxY;
 		Array<int> Lines;
-		TNavMeshLine Line;
-		for (int LineIndex = 0; LineIndex < Polygon.LineCount; LineIndex++)
+		TNavMeshLine NavMeshLine;
+		for (int LineIndex = 0; LineIndex < PolygonLines.Size(); LineIndex++)
 		{
-			Line = PolygonLines[LineIndex];
+			NavMeshLine = PolygonLines[LineIndex];
 			// Search for the map LINEDEF, using the cached grid.
 			Lines.Clear();
-			GetGridExtent(Line.X1, Line.Y1, Line.X2, Line.Y2, MinX, MaxX, MinY, MaxY);
+			GetGridExtent(NavMeshLine.X1, NavMeshLine.Y1, NavMeshLine.X2, NavMeshLine.Y2, MinX, MaxX, MinY, MaxY);
 			GridLinedef.Fill(MinX, MaxX, MinY, MaxY, Lines);
 			bool NotFound = True;
 			int MapLinedefIndex = 0;
 			while ((NotFound) && (MapLinedefIndex < Lines.Size()))
 			{
-				Vertex V1 = Level.Lines[MapLinedefIndex].V1;
-				Vertex V2 = Level.Lines[MapLinedefIndex].V2;
-				if (((Line.X1 == V1.P.X) && (Line.Y1 == V1.P.Y) && (Line.X2 == V2.P.X) && (Line.Y2 == V2.P.Y))
-				|| ((Line.X1 == V2.P.X) && (Line.Y1 == V2.P.Y) && (Line.X2 == V1.P.X) && (Line.Y2 == V1.P.Y)))
+				Vertex V1 = Level.Lines[Lines[MapLinedefIndex]].V1;
+				Vertex V2 = Level.Lines[Lines[MapLinedefIndex]].V2;
+				if (((NavMeshLine.X1 == V1.P.X) && (NavMeshLine.Y1 == V1.P.Y) && (NavMeshLine.X2 == V2.P.X) && (NavMeshLine.Y2 == V2.P.Y))
+				|| ((NavMeshLine.X1 == V2.P.X) && (NavMeshLine.Y1 == V2.P.Y) && (NavMeshLine.X2 == V1.P.X) && (NavMeshLine.Y2 == V1.P.Y)))
 					NotFound = False;
 				else
 					MapLinedefIndex++;
@@ -1815,7 +1815,7 @@ class TNavMeshBuilder: TCustomNavMesh
 				MapLinedefIndex = -1;
 			else
 				MapLinedefIndex = Lines[MapLinedefIndex];
-			Line.MapLinedef = MapLinedefIndex;
+			NavMeshLine.MapLinedef = MapLinedefIndex;
 			// Check for portals.
 			Lines.Clear();
 			GridNavMeshLine.Fill(MinX, MaxX, MinY, MaxY, Lines);
@@ -1836,8 +1836,8 @@ class TNavMeshBuilder: TCustomNavMesh
 						CurrentPolygonIndex++;
 					}
 				} while ((PolygonNotFound) && (CurrentPolygonIndex < NavMesh.NavMeshPolygons.Size()));
-				if (((Line.X1 == NavMesh.NavMeshLines[I].X1) && (Line.Y1 == NavMesh.NavMeshLines[I].Y1) && (Line.X2 == NavMesh.NavMeshLines[I].X2) && (Line.Y2 == NavMesh.NavMeshLines[I].Y2))
-				|| ((Line.X1 == NavMesh.NavMeshLines[I].X2) && (Line.Y1 == NavMesh.NavMeshLines[I].Y2) && (Line.X2 == NavMesh.NavMeshLines[I].X1) && (Line.Y2 == NavMesh.NavMeshLines[I].Y1)))
+				if (((NavMeshLine.X1 == NavMesh.NavMeshLines[I].X1) && (NavMeshLine.Y1 == NavMesh.NavMeshLines[I].Y1) && (NavMeshLine.X2 == NavMesh.NavMeshLines[I].X2) && (NavMeshLine.Y2 == NavMesh.NavMeshLines[I].Y2))
+				|| ((NavMeshLine.X1 == NavMesh.NavMeshLines[I].X2) && (NavMeshLine.Y1 == NavMesh.NavMeshLines[I].Y2) && (NavMeshLine.X2 == NavMesh.NavMeshLines[I].X1) && (NavMeshLine.Y2 == NavMesh.NavMeshLines[I].Y1)))
 				{
 					bool LineIsPortal = True;
 					// If the line is generated from the splitting of the SECTOR, then check for 3D floors, else check further.
@@ -1845,7 +1845,10 @@ class TNavMeshBuilder: TCustomNavMesh
 					{
 						// Check if the LINEDEF blocks monsters.
 						Line MapLinedef = Level.Lines[MapLinedefIndex];
-						if ((MapLinedef.Flags && 0x00000003) || (!MapLinedef.FrontSector) || (!MapLinedef.BackSector))
+						if ((MapLinedef.Flags & Line.ML_BLOCKING)
+						|| (MapLinedef.Flags & Line.ML_BLOCKMONSTERS)
+						|| (!MapLinedef.FrontSector)
+						|| (!MapLinedef.BackSector))
 							LineIsPortal = False;
 						// Check if the two floor heights are too different.
 						int HeightFloorDifference = Abs(Polygon.HeightFloor - NavMesh.NavMeshPolygons[CurrentPolygonIndex].HeightFloor);
@@ -1869,12 +1872,17 @@ class TNavMeshBuilder: TCustomNavMesh
 					}
 					if (LineIsPortal)
 					{
-						Line.Portal = CurrentPolygonIndex;
+						NavMeshLine.Portal = CurrentPolygonIndex;
 						NavMesh.NavMeshLines[I].Portal = NavMesh.NavMeshPolygons.Size();
 					}
 				}
 			}
 		}
+		// Update the "FAT-like" arrays and NavMesh nodes.
+		NavMesh.PolygonChain.Add(SectorNumber, NavMesh.NavMeshPolygons.Size());
+		TNavMeshNode NavMeshNode = New('TNavMeshNode');
+		NavMeshNode.Initialize();
+		NavMesh.NavNodes.Push(NavMeshNode);
 		// Add the polygon.
 		Polygon.LineFirst = NavMesh.NavMeshLines.Size();
 		Polygon.LineCount = PolygonLines.Size();
@@ -1890,34 +1898,88 @@ class TNavMeshBuilder: TCustomNavMesh
 			NavMesh.NavMeshLines.Push(NavMeshLine);
 		}
 	}
-	void ProcessPolygons(Array<TPolygon> Polygons, int HeightFloor, int HeightCeiling, int MapSector, int Flags = 0)
+	void ProcessPolygons(Array<TPolygon> Polygons, int SectorNumber)
 	{
+		int NumberOfPlanes = Level.Sectors[SectorNumber].Get3DFloorCount();
+		Vector2 TestPoint;
+		TestPoint.X = (Polygons[0].Points[0].X + Polygons[0].Points[1].X) / 2;
+		TestPoint.Y = (Polygons[0].Points[0].Y + Polygons[0].Points[1].Y) / 2;
+		int HeightFloor = Level.Sectors[SectorNumber].FloorPlane.ZatPoint(TestPoint);
+		int HeightCeiling = Level.Sectors[SectorNumber].CeilingPlane.ZatPoint(TestPoint);
+		Array<int> FloorPlanes;
+		Array<int> CeilingPlanes;
+		for (int I = 0; I < NumberOfPlanes; I++)
+		{
+			F3DFloor FF = Level.Sectors[SectorNumber].Get3DFloor(I);
+			if (!(FF.Flags & F3DFloor.FF_EXISTS)) // Yes, this is actually needed!
+				continue; // Do no remove these lines!
+			FloorPlanes.Push(FF.Bottom.ZatPoint(TestPoint));
+			CeilingPlanes.Push(FF.Top.ZatPoint(TestPoint));
+		}
+		for (int I = 0; I < NumberOfPlanes - 1; I++)
+			for (int J = I + 1; J < NumberOfPlanes; J++)
+				if (FloorPlanes[I] > FloorPlanes[J])
+				{
+					int Tmp = FloorPlanes[I];
+					FloorPlanes[I] = FloorPlanes[J];
+					FloorPlanes[J] = Tmp;
+					Tmp = CeilingPlanes[I];
+					CeilingPlanes[I] = CeilingPlanes[J];
+					CeilingPlanes[J] = Tmp;
+				}
 		Array<TNavMeshLine> Lines;
 		TNavMeshPolygon NavMeshPolygon;
 		TNavMeshLine NavMeshLine;
 		for (int PolygonIndex = 0; PolygonIndex < Polygons.Size(); PolygonIndex++)
 		{
-			Lines.Clear();
-			TPolygon Polygon = Polygons[PolygonIndex];
-			// Generate the mesh polygon.
 			NavMeshPolygon = New('TNavMeshPolygon');
-			NavMeshPolygon.HeightFloor = HeightFloor;
-			NavMeshPolygon.HeightCeiling = HeightCeiling;
-			NavMeshPolygon.MapSector = MapSector;
-			NavMeshPolygon.Flags = Flags;
-			for (int I = 0; I < Polygon.Points.Size(); I++)
+			NavMeshPolygon.MapSector = SectorNumber;
+			NavMeshPolygon.Flags = 0;
+			Lines.Clear();
+			for (int I = 0; I < Polygons[PolygonIndex].Points.Size(); I++)
 			{
-				int J = (I + 1) % Polygon.Points.Size();
+				int J = (I + 1) % Polygons[PolygonIndex].Points.Size();
 				NavMeshLine = New('TNavMeshLine');
-				NavMeshLine.X1 = Polygon.Points[I].X;
-				NavMeshLine.Y1 = Polygon.Points[I].Y;
-				NavMeshLine.X2 = Polygon.Points[J].X;
-				NavMeshLine.Y2 = Polygon.Points[J].Y;
+				NavMeshLine.X1 = Polygons[PolygonIndex].Points[I].X;
+				NavMeshLine.Y1 = Polygons[PolygonIndex].Points[I].Y;
+				NavMeshLine.X2 = Polygons[PolygonIndex].Points[J].X;
+				NavMeshLine.Y2 = Polygons[PolygonIndex].Points[J].Y;
 				Lines.Push(NavMeshLine);
 			}
-			// Append the mesh polygon to the navigation mesh.
-			Polygon.SetOrientation(CounterClockwise);
-			ProcessPolygonMesh(NavMeshPolygon, Lines);
+			if (NumberOfPlanes == 0)
+			{
+				NavMeshPolygon.HeightFloor = HeightFloor;
+				NavMeshPolygon.HeightCeiling = HeightCeiling;
+				ProcessPolygonMesh(NavMeshPolygon, Lines, SectorNumber);
+			}
+			else
+			{
+				NavMeshPolygon.Flags = 1; // Lowest-Z polygon.
+				NavMeshPolygon.HeightFloor = HeightFloor;
+				for (int Plane = 0; Plane < FloorPlanes.Size(); Plane++)
+				{
+					NavMeshPolygon.HeightCeiling = FloorPlanes[Plane];
+					ProcessPolygonMesh(NavMeshPolygon, Lines, SectorNumber);
+					NavMeshPolygon = New('TNavMeshPolygon');
+					NavMeshPolygon.MapSector = SectorNumber;
+					NavMeshPolygon.Flags = 0;
+					Lines.Clear();
+					for (int I = 0; I < Polygons[PolygonIndex].Points.Size(); I++)
+					{
+						int J = (I + 1) % Polygons[PolygonIndex].Points.Size();
+						NavMeshLine = New('TNavMeshLine');
+						NavMeshLine.X1 = Polygons[PolygonIndex].Points[I].X;
+						NavMeshLine.Y1 = Polygons[PolygonIndex].Points[I].Y;
+						NavMeshLine.X2 = Polygons[PolygonIndex].Points[J].X;
+						NavMeshLine.Y2 = Polygons[PolygonIndex].Points[J].Y;
+						Lines.Push(NavMeshLine);
+					}
+					NavMeshPolygon.HeightFloor = CeilingPlanes[Plane];
+				}
+				NavMeshPolygon.Flags = 2; // Highest-Z polygon.
+				NavMeshPolygon.HeightCeiling = HeightCeiling;
+				ProcessPolygonMesh(NavMeshPolygon, Lines, SectorNumber);
+			}
 		}
 	}
 	void ProcessSector(int SectorNumber)
@@ -1925,8 +1987,6 @@ class TNavMeshBuilder: TCustomNavMesh
 		// Ignore the doors that close after 30 seconds after level start.
 		if (Level.Sectors[SectorNumber].Special == 10)
 			return;
-		int HeightFloor = Level.Sectors[SectorNumber].FloorPlane.ZatPoint(Level.Sectors[SectorNumber].Lines[0].V1.P);
-		int HeightCeiling = Level.Sectors[SectorNumber].CeilingPlane.ZatPoint(Level.Sectors[SectorNumber].Lines[0].V1.P);
 		Array<int> VertexBegin;
 		Array<int> VertexEnd;
 		Array<TPolygonGroup> PolygonGroups;
@@ -1971,32 +2031,8 @@ class TNavMeshBuilder: TCustomNavMesh
 					for (int I = 0; I < InputPolygons.Size(); I++)
 						TPartition.ConvexPartition_HM(InputPolygons[I], OutputPolygons);
 				if (OutputPolygons.Size() > 0)
-				{
-					// Help from Inkoalawetrust: 3D sectors management!
-					for (int J = 0; J < Level.Sectors[SectorNumber].Get3DFloorCount(); J++)
-					{
-						F3DFloor FF = Level.Sectors[SectorNumber].Get3DFloor(J);
-						if (!(FF.Flags & F3DFloor.FF_EXISTS)) // Yes, this is actually needed!
-							continue; // Do no remove these lines!
-						int MiddleFloor = FF.Bottom.ZatPoint(Level.Sectors[SectorNumber].Lines[0].V1.P);
-						int MiddleCeiling = FF.Top.ZatPoint(Level.Sectors[SectorNumber].Lines[0].V1.P);
-						if (MiddleFloor > HeightFloor)
-                            ProcessPolygons(OutputPolygons, HeightFloor, HeightCeiling, SectorNumber, 0);
-                        if (MiddleCeiling < HeightCeiling)
-                            ProcessPolygons(OutputPolygons, HeightFloor, HeightCeiling, SectorNumber, (FF.Flags & F3DFloor.FF_SWIMMABLE) != 0);
-					}
-					ProcessPolygons(OutputPolygons, HeightFloor, HeightCeiling, SectorNumber);
-				}
+					ProcessPolygons(OutputPolygons, SectorNumber);
 			}
-		}
-		// Update the "FAT-like" arrays.
-		int LastPolygon = NavMesh.NavMeshPolygons.Size();
-		for (int I = FirstPolygon; I < LastPolygon; I++)
-		{
-			NavMesh.PolygonChain.Add(SectorNumber, I);
-			TNavMeshNode NavMeshNode = New('TNavMeshNode');
-			NavMeshNode.Initialize();
-			NavMesh.NavNodes.Push(NavMeshNode);
 		}
 		//Console.Printf("Sector = %i, Polygons = %i, Lines = %i", SectorNumber, NavMesh.NavMeshPolygons.Size(), NavMesh.NavMeshLines.Size());
 	}
@@ -2052,7 +2088,7 @@ class TNavMeshBuilder: TCustomNavMesh
 					MinY = NavMesh.NavMeshLines[0].Y1;
 					for (int I = 0; I < NavMesh.NavMeshPolygons[PolygonIndex].LineCount; I++)
 					{
-						TNavMeshLine Line = NavMesh.NavMeshLines[NavMesh.NavMeshPolygons[PolygonIndex].LineFirst + I];
+						TNavMeshLine NavMeshLine = NavMesh.NavMeshLines[NavMesh.NavMeshPolygons[PolygonIndex].LineFirst + I];
 						if (NavMesh.NavMeshLines[I].X1 > MaxX)
 							MaxX = NavMesh.NavMeshLines[I].X1;
 						if (NavMesh.NavMeshLines[I].Y1 > MaxY)
@@ -2104,6 +2140,7 @@ class TNavMeshBuilder: TCustomNavMesh
 
 class TNavMeshBuilderWorker : Thinker
 {
+	const MaxTime = 5; // Maximum time of computation in milliseconds.
 	TNavMeshBuilder NavMeshBuilder;
 	int CurrentSector;
 	void Link(TNavMeshBuilder NavMeshBuilder)
@@ -2122,11 +2159,11 @@ class TNavMeshBuilderWorker : Thinker
 			CurrentSector++;
 			if (CurrentSector >= Level.Sectors.Size())
 			{
-				NavMeshBuilder.ProcessCells();
+				//NavMeshBuilder.ProcessCells();
 				Destroy();
 			}
 			StopTime = MSTime() - StartTime;
-		} while ((CurrentSector < Level.Sectors.Size()) && (StopTime < 10));
+		} while ((CurrentSector < Level.Sectors.Size()) && (StopTime < MaxTime));
 	}
 }
 
@@ -2181,8 +2218,8 @@ class TCustomNavMeshActor : KAI_Actor abstract
 	}
 	bool RouteSearch(Vector3 Destination)
 	{
-		int CurrentSelfPolygon = NavMesh.SearchPolygon(Pos, CurSector.Index());
-		int CurrentTargetPolygon = NavMesh.SearchPolygon(Destination, Target.CurSector.Index());
+		int CurrentSelfPolygon = NavMesh.SearchPolygon(Pos);
+		int CurrentTargetPolygon = NavMesh.SearchPolygon(Destination);
 		if ((CurrentSelfPolygon >= 0) && (CurrentTargetPolygon >= 0) && (CurrentSelfPolygon != CurrentTargetPolygon))
 		{
 			RouteLastSelfPolygon = CurrentSelfPolygon;
@@ -2194,8 +2231,8 @@ class TCustomNavMeshActor : KAI_Actor abstract
 	void RouteChase(Vector3 Destination)
 	{
 		// Update the current position and the target position.
-		int CurrentSelfPolygon = NavMesh.SearchPolygon(Pos, CurSector.Index());
-		int CurrentTargetPolygon = NavMesh.SearchPolygon(Destination, Target.CurSector.Index());
+		int CurrentSelfPolygon = NavMesh.SearchPolygon(Pos);
+		int CurrentTargetPolygon = NavMesh.SearchPolygon(Destination);
 		if ((CurrentSelfPolygon < 0) || (CurrentTargetPolygon < 0))
 		{
 			// No route!
