@@ -8,6 +8,11 @@
 // Memory management classes.
 // -----------------------------------------------------------------------------
 
+// Base class for NavMesh classes.
+class TCustomNavMesh : Object abstract
+{
+}
+
 // Class TGridPage allocates space for 1024 FAT-like entries.
 class TGridPage: TCustomNavMesh
 {
@@ -39,28 +44,15 @@ class TGridList: TCustomNavMesh
 	}
 	void Add(int GridX, int GridY, int Value)
 	{
+		int ChainNumber = (GridY << 8) + GridX;
 		// Add the entry in the grid chains.
 		int PageNumber = GridCount >> 10;
 		int PageIndex = GridCount & 1023;
-		if (PageIndex == 0)
+		if (!GridPages[PageNumber])
 			GridPages[PageNumber] = TGridPage.Create();
 		GridPages[PageNumber].Values[PageIndex] = Value;
-		GridPages[PageNumber].Chains[PageIndex] = -1;
-		// Link the value to the previous last chain.
-		int ChainNumber = (GridY << 8) + GridX;
-		int LastChain = GridChains[ChainNumber];
-		if (GridChains[ChainNumber] >= 0)
-		{
-			do
-			{
-				PageNumber = LastChain >> 10;
-				PageIndex = LastChain & 1023;
-				LastChain = GridPages[PageNumber].Chains[PageIndex];
-			} while (LastChain >= 0);
-			GridPages[PageNumber].Chains[PageIndex] = GridCount;
-		}
-		else
-			GridChains[ChainNumber] = GridCount;
+		GridPages[PageNumber].Chains[PageIndex] = GridChains[ChainNumber];
+		GridChains[ChainNumber] = GridCount;
 		GridCount++;
 	}
 	void FillOneCell(int GridX, int GridY, out Array<int> Result)
@@ -95,8 +87,6 @@ class TPolygonChain: TCustomNavMesh
 	{
 		TPolygonChain PolygonChain = New('TPolygonChain');
 		PolygonChain.GridCount = 0;
-		for (int I = 0; I < 1024; I++)
-			PolygonChain.GridPages[I] = null;
 		for (int I = 0; I < Level.Sectors.Size(); I++)
 			PolygonChain.SectorFirst.Push(-1);
 		return PolygonChain;
@@ -108,23 +98,11 @@ class TPolygonChain: TCustomNavMesh
 		// Add the entry in the polygon chains.
 		PageNumber = GridCount >> 10;
 		PageIndex = GridCount & 1023;
-		if (PageIndex == 0)
+		if (!GridPages[PageNumber])
 			GridPages[PageNumber] = TGridPage.Create();
 		GridPages[PageNumber].Values[PageIndex] = PolygonIndex;
-		GridPages[PageNumber].Chains[PageIndex] = -1;
-		// Link the previous last chained polygon of the sector to the new one.
-		int LastPolygonIndex = SectorFirst[SectorNumber];
-		if (LastPolygonIndex < 0)
-			SectorFirst[SectorNumber] = GridCount;
-		else
-		{
-			do {
-				PageNumber = LastPolygonIndex >> 10;
-				PageIndex = LastPolygonIndex & 1023;
-				LastPolygonIndex = GridPages[PageNumber].Chains[PageIndex];
-			} while (LastPolygonIndex >= 0);
-			GridPages[PageNumber].Chains[PageIndex] = GridCount;
-		}
+		GridPages[PageNumber].Chains[PageIndex] = SectorFirst[SectorNumber];
+		SectorFirst[SectorNumber] = GridCount;
 		GridCount++;
 	}
 	void Fill(int SectorNumber, out Array<int> Result)
@@ -145,11 +123,6 @@ class TPolygonChain: TCustomNavMesh
 // -----------------------------------------------------------------------------
 // Data classes, that will store the navigation mesh.
 // -----------------------------------------------------------------------------
-
-// Base class for NavMesh classes.
-class TCustomNavMesh : Object abstract
-{
-}
 
 // Class representing a line of the NavMesh.
 class TNavMeshLine : TCustomNavMesh
@@ -437,23 +410,12 @@ class TPoint: TCustomNavMesh
 {
 	float X;
 	float Y;
-	bool Equals(TPoint Other)
-	{
-		return (X == Other.X) && (Y == Other.Y);
-	}
 	static TPoint Create(float X, float Y)
 	{
 		TPoint Point = New('TPoint');
 		Point.X = X;
 		Point.Y = Y;
 		return Point;
-	}
-	TPoint Clone()
-	{
-		TPoint Result = New('TPoint');
-		Result.X = self.X;
-		Result.Y = self.Y;
-		return Result;
 	}
 	static TPoint Add(TPoint A, TPoint B)
 	{
@@ -483,26 +445,18 @@ class TPolygon: TCustomNavMesh
 	bool Hole;
 	static TPolygon Create()
 	{
-		TPolygon PPLPolygon = New('TPolygon');
-		PPLPolygon.Hole = False;
-		return PPLPolygon;
+		TPolygon Polygon = New('TPolygon');
+		Polygon.Hole = False;
+		return Polygon;
 	}
 	static TPolygon CreateTriangle(TPoint P1, TPoint P2, TPoint P3)
 	{
-		TPolygon PPLPolygon = New('TPolygon');
-		PPLPolygon.Points.Push(P1);
-		PPLPolygon.Points.Push(P2);
-		PPLPolygon.Points.Push(P3);
-		PPLPolygon.Hole = False;
-		return PPLPolygon;
-	}
-	TPolygon Clone()
-	{
-		TPolygon PPLPolygon = New('TPolygon');
-		for (int I = 0; I < Points.Size(); I++)
-			PPLPolygon.Points.Push(self.Points[I]);
-		PPLPolygon.Hole = self.Hole;
-		return PPLPolygon;
+		TPolygon Polygon = New('TPolygon');
+		Polygon.Points.Push(P1);
+		Polygon.Points.Push(P2);
+		Polygon.Points.Push(P3);
+		Polygon.Hole = False;
+		return Polygon;
 	}
 	TOrientation GetOrientation()
 	{
@@ -1136,8 +1090,6 @@ class TNavMeshBuilder: TCustomNavMesh
 	TNavMesh NavMesh;
 	TGridList GridLinedef;
 	TGridList GridNavMeshLine;
-	//Array<TNavMeshLine> NavMeshLines;
-	//Array<TNavMeshPolygon> NavMeshPolygons;
 	static TNavMeshBuilder Create()
 	{
 		TNavMeshBuilder NavMeshBuilder = New('TNavMeshBuilder');
@@ -1171,13 +1123,6 @@ class TNavMeshBuilder: TCustomNavMesh
 			return False;
 		else
 			return (PointInsidePolygon(OuterPolygon, TestPoligon.Points[0])) && (PointInsidePolygon(OuterPolygon, TestPoligon.Points[1]));
-	}
-	bool CheckLinedef3D(int LineIndex)
-	{
-		bool Result = False;
-		if ((Level.Lines[LineIndex].Special == 160) && (((Level.Lines[LineIndex].Args[1] & 0x0003) == 0x0001) || ((Level.Lines[LineIndex].Args[1] & 0x0003) == 0x0002)))
-			Result = True;
-		return Result;
 	}
 	void GetGridExtent(int X1, int Y1, int X2, int Y2, out int MinX, out int MaxX, out int MinY, out int MaxY)
 	{
@@ -2132,6 +2077,12 @@ class TNavMeshBuilder: TCustomNavMesh
 		NavMesh.PolygonChain = TPolygonChain.Create();
 		PreProcessMapData();
 	}
+	override void OnDestroy()
+	{
+		GridLinedef.Destroy();
+		GridNavMeshLine.Destroy();
+		super.OnDestroy();
+	}
 }
 
 // -----------------------------------------------------------------------------
@@ -2151,19 +2102,20 @@ class TNavMeshBuilderWorker : Thinker
 	override void Tick()
 	{
 		super.Tick();
-		int StartTime = MSTime();
-		int StopTime;
-		do
+		if (CurrentSector < Level.Sectors.Size())
 		{
-			NavMeshBuilder.ProcessSector(CurrentSector);
-			CurrentSector++;
-			if (CurrentSector >= Level.Sectors.Size())
+			int StartTime = MSTime();
+			while ((CurrentSector < Level.Sectors.Size()) && ((MSTime() - StartTime) < MaxTime))
 			{
-				//NavMeshBuilder.ProcessCells();
-				Destroy();
+				NavMeshBuilder.ProcessSector(CurrentSector);
+				CurrentSector++;
 			}
-			StopTime = MSTime() - StartTime;
-		} while ((CurrentSector < Level.Sectors.Size()) && (StopTime < MaxTime));
+		}
+		else
+		{
+			NavMeshBuilder.Destroy();
+			Destroy();
+		}
 	}
 }
 
