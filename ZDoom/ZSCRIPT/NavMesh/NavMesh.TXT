@@ -539,12 +539,170 @@ class TPartitionVertex: TCustomNavMesh
 	}
 }
 
-// Class TPartition is a class, that handles three very important tasks.
-// 1. Hole removal.
-// 2. Triangulation by ear clipping.
-// 3. Convex partitioning with the Hertel-Mehlhorn algorithm.
-class TPartition: TCustomNavMesh
+// -----------------------------------------------------------------------------
+// NavMesh reader.
+// -----------------------------------------------------------------------------
+
+// Simple lexer for the NavMesh files.
+class TNavMeshReader : TCustomNavMesh
 {
+	String SourceCode;
+	int SourceCodeLength;
+	int Position;
+	bool EOF()
+	{
+		return Position >= SourceCodeLength;
+	}
+	bool IsWhitespace(int Ch)
+	{
+		return (Ch == 9) || (Ch == 10) || (Ch == 13) || (Ch == 32);
+	}
+	String GetNextToken()
+	{
+		String Result = "";
+		int Ch;
+		[Ch, Position] = SourceCode.GetNextCodePoint(Position);
+		// Skip comments.
+		if (Ch == "#")
+		{
+			do
+			{
+				[Ch, Position] = SourceCode.GetNextCodePoint(Position);
+			}
+			while ((!EOF()) && (IsWhitespace(Ch)));
+		}
+		// Skip whitespaces.
+		while ((!EOF()) && (IsWhitespace(Ch)))
+			[Ch, Position] = SourceCode.GetNextCodePoint(Position);
+		while ((!EOF()) && (!IsWhitespace(Ch)))
+		{
+			Result.AppendCharacter(Ch);
+			[Ch, Position] = SourceCode.GetNextCodePoint(Position);
+		}
+		return Result;
+	}
+	String PeekNextToken()
+	{
+		int SavedPosition = Position;
+		String Result = GetNextToken();
+		Position = SavedPosition;
+		return Result;
+	}
+	static TNavMeshReader Create()
+	{
+		TNavMeshReader NavMeshReader = New('TNavMeshReader');
+		return NavMeshReader;
+	}
+	bool Read(String MapName, TNavMesh NavMesh)
+	{
+		String LumpName = String.Format("NAVMESHES/%s.txt", MapName);
+		int LumpNumber = Wads.CheckNumForFullName(LumpName);
+		if (LumpNumber < 0)
+			return False;
+		SourceCode = Wads.ReadLump(LumpNumber);
+		SourceCodeLength = SourceCode.CodePointCount();
+		// Check the header.
+		if (!(SourceCode.Mid(0, 14) ~== "# ZDOOMNAVMESH"))
+			return False;
+		// Parse the source code.
+		Position = 14;
+		int Ch;
+		[Ch, Position] = SourceCode.GetNextCodePoint(Position);
+		while ((EOF()) && (IsWhitespace(Ch)))
+		{
+			[Ch, Position] = SourceCode.GetNextCodePoint(Position);
+		}
+		int CurrentCell = 0;
+		int CurrentCellIndex = 0;
+		while (!EOF())
+		{
+			String Token = GetNextToken();
+			// Line command.
+			if (Token ~== "L")
+			{
+				TNavMeshLine NavMeshLine = New('TNavMeshLine');
+				NavMeshLine.X1 = GetNextToken().ToInt();
+				NavMeshLine.Y1 = GetNextToken().ToInt();
+				NavMeshLine.X2 = GetNextToken().ToInt();
+				NavMeshLine.Y2 = GetNextToken().ToInt();
+				NavMeshLine.Portal = GetNextToken().ToInt();
+				NavMeshLine.MapLinedef = GetNextToken().ToInt();
+				NavMeshLine.Flags = GetNextToken().ToInt();
+				NavMesh.NavMeshLines.Push(NavMeshLine);
+				NavMesh.LineCount++;
+			}
+			// Polygon command.
+			if (Token ~== "P")
+			{
+				TNavMeshPolygon NavMeshPolygon = New('TNavMeshPolygon');
+				NavMeshPolygon.HeightFloor = GetNextToken().ToInt();
+				NavMeshPolygon.HeightCeiling = GetNextToken().ToInt();
+				NavMeshPolygon.LineFirst = GetNextToken().ToInt();
+				NavMeshPolygon.LineCount = GetNextToken().ToInt();
+				NavMeshPolygon.MapSector = GetNextToken().ToInt();
+				NavMeshPolygon.Flags = GetNextToken().ToInt();
+				NavMesh.NavMeshPolygons.Push(NavMeshPolygon);
+				NavMesh.PolygonCount++;
+			}
+			// Cells origin and size command.
+			if (Token ~== "O")
+			{
+				NavMesh.CellOffsetX = GetNextToken().ToInt();
+				NavMesh.CellOffsetY = GetNextToken().ToInt();
+				NavMesh.CellNumX = GetNextToken().ToInt();
+				NavMesh.CellNumY = GetNextToken().ToInt();
+			}
+			// Cells space partitioning command.
+			if (Token ~== "C")
+			{
+				int CellNumber = GetNextToken().ToInt();
+				// Cells indexes management.
+				while (CurrentCellIndex <= CellNumber)
+				{
+					NavMesh.CellsIndex.Push(CurrentCell);
+					CurrentCellIndex++;
+				}
+				String NextToken = PeekNextToken().Left(1);
+				while ((NextToken >= "0") && (NextToken <= "9"))
+				{
+					NavMesh.Cells.Push(GetNextToken().ToInt());
+					CurrentCell++;
+					NextToken = PeekNextToken().Left(1);
+				}
+			}
+		}
+		// Add last cell index.
+		NavMesh.CellsIndex.Push(CurrentCell);
+		// Build the node list.
+		for (int I = 0; I < NavMesh.NavMeshPolygons.Size(); I++)
+		{
+			TNavMeshNode NavMeshNode = New('TNavMeshNode');
+			NavMeshNode.Initialize();
+			NavMesh.NavNodes.Push(NavMeshNode);
+		}
+		return True;
+	}
+}
+
+// -----------------------------------------------------------------------------
+// NavMesh main class.
+// -----------------------------------------------------------------------------
+
+class TNavMeshBuilder: TCustomNavMesh
+{
+	const GridOffset = 32768;
+	int ActorHeight;
+	int ActorWidth;
+	TNavMesh NavMesh;
+	TGridList GridLinedef;
+	TGridList GridNavMeshLine;
+	static TNavMeshBuilder Create()
+	{
+		TNavMeshBuilder NavMeshBuilder = New('TNavMeshBuilder');
+		NavMeshBuilder.GridLinedef = TGridList.Create();
+		NavMeshBuilder.GridNavMeshLine = TGridList.Create();
+		return NavMeshBuilder;
+	}
 	static bool IsConvex(float P1X, float P1Y, float P2X, float P2Y, float P3X, float P3Y)
 	{
 		return (P3Y - P1Y) * (P2X - P1X) - (P3X - P1X) * (P2Y - P1Y) > 0;
@@ -931,172 +1089,6 @@ class TPartition: TCustomNavMesh
 		OutputPolygons.Append(Triangles);
 		return True;
 	}
-}
-
-// -----------------------------------------------------------------------------
-// NavMesh reader.
-// -----------------------------------------------------------------------------
-
-// Simple lexer for the NavMesh files.
-class TNavMeshReader : TCustomNavMesh
-{
-	String SourceCode;
-	int SourceCodeLength;
-	int Position;
-	bool EOF()
-	{
-		return Position >= SourceCodeLength;
-	}
-	bool IsWhitespace(int Ch)
-	{
-		return (Ch == 9) || (Ch == 10) || (Ch == 13) || (Ch == 32);
-	}
-	String GetNextToken()
-	{
-		String Result = "";
-		int Ch;
-		[Ch, Position] = SourceCode.GetNextCodePoint(Position);
-		// Skip comments.
-		if (Ch == "#")
-		{
-			do
-			{
-				[Ch, Position] = SourceCode.GetNextCodePoint(Position);
-			}
-			while ((!EOF()) && (IsWhitespace(Ch)));
-		}
-		// Skip whitespaces.
-		while ((!EOF()) && (IsWhitespace(Ch)))
-			[Ch, Position] = SourceCode.GetNextCodePoint(Position);
-		while ((!EOF()) && (!IsWhitespace(Ch)))
-		{
-			Result.AppendCharacter(Ch);
-			[Ch, Position] = SourceCode.GetNextCodePoint(Position);
-		}
-		return Result;
-	}
-	String PeekNextToken()
-	{
-		int SavedPosition = Position;
-		String Result = GetNextToken();
-		Position = SavedPosition;
-		return Result;
-	}
-	static TNavMeshReader Create()
-	{
-		TNavMeshReader NavMeshReader = New('TNavMeshReader');
-		return NavMeshReader;
-	}
-	bool Read(String MapName, TNavMesh NavMesh)
-	{
-		String LumpName = String.Format("NAVMESHES/%s.txt", MapName);
-		int LumpNumber = Wads.CheckNumForFullName(LumpName);
-		if (LumpNumber < 0)
-			return False;
-		SourceCode = Wads.ReadLump(LumpNumber);
-		SourceCodeLength = SourceCode.CodePointCount();
-		// Check the header.
-		if (!(SourceCode.Mid(0, 14) ~== "# ZDOOMNAVMESH"))
-			return False;
-		// Parse the source code.
-		Position = 14;
-		int Ch;
-		[Ch, Position] = SourceCode.GetNextCodePoint(Position);
-		while ((EOF()) && (IsWhitespace(Ch)))
-		{
-			[Ch, Position] = SourceCode.GetNextCodePoint(Position);
-		}
-		int CurrentCell = 0;
-		int CurrentCellIndex = 0;
-		while (!EOF())
-		{
-			String Token = GetNextToken();
-			// Line command.
-			if (Token ~== "L")
-			{
-				TNavMeshLine NavMeshLine = New('TNavMeshLine');
-				NavMeshLine.X1 = GetNextToken().ToInt();
-				NavMeshLine.Y1 = GetNextToken().ToInt();
-				NavMeshLine.X2 = GetNextToken().ToInt();
-				NavMeshLine.Y2 = GetNextToken().ToInt();
-				NavMeshLine.Portal = GetNextToken().ToInt();
-				NavMeshLine.MapLinedef = GetNextToken().ToInt();
-				NavMeshLine.Flags = GetNextToken().ToInt();
-				NavMesh.NavMeshLines.Push(NavMeshLine);
-				NavMesh.LineCount++;
-			}
-			// Polygon command.
-			if (Token ~== "P")
-			{
-				TNavMeshPolygon NavMeshPolygon = New('TNavMeshPolygon');
-				NavMeshPolygon.HeightFloor = GetNextToken().ToInt();
-				NavMeshPolygon.HeightCeiling = GetNextToken().ToInt();
-				NavMeshPolygon.LineFirst = GetNextToken().ToInt();
-				NavMeshPolygon.LineCount = GetNextToken().ToInt();
-				NavMeshPolygon.MapSector = GetNextToken().ToInt();
-				NavMeshPolygon.Flags = GetNextToken().ToInt();
-				NavMesh.NavMeshPolygons.Push(NavMeshPolygon);
-				NavMesh.PolygonCount++;
-			}
-			// Cells origin and size command.
-			if (Token ~== "O")
-			{
-				NavMesh.CellOffsetX = GetNextToken().ToInt();
-				NavMesh.CellOffsetY = GetNextToken().ToInt();
-				NavMesh.CellNumX = GetNextToken().ToInt();
-				NavMesh.CellNumY = GetNextToken().ToInt();
-			}
-			// Cells space partitioning command.
-			if (Token ~== "C")
-			{
-				int CellNumber = GetNextToken().ToInt();
-				// Cells indexes management.
-				while (CurrentCellIndex <= CellNumber)
-				{
-					NavMesh.CellsIndex.Push(CurrentCell);
-					CurrentCellIndex++;
-				}
-				String NextToken = PeekNextToken().Left(1);
-				while ((NextToken >= "0") && (NextToken <= "9"))
-				{
-					NavMesh.Cells.Push(GetNextToken().ToInt());
-					CurrentCell++;
-					NextToken = PeekNextToken().Left(1);
-				}
-			}
-		}
-		// Add last cell index.
-		NavMesh.CellsIndex.Push(CurrentCell);
-		// Build the node list.
-		for (int I = 0; I < NavMesh.NavMeshPolygons.Size(); I++)
-		{
-			TNavMeshNode NavMeshNode = New('TNavMeshNode');
-			NavMeshNode.Initialize();
-			NavMesh.NavNodes.Push(NavMeshNode);
-		}
-		return True;
-	}
-}
-
-// -----------------------------------------------------------------------------
-// NavMesh main class.
-// -----------------------------------------------------------------------------
-
-class TNavMeshBuilder: TCustomNavMesh
-{
-	const GridOffset = 32768;
-	int ActorHeight;
-	int ActorWidth;
-	TNavMesh NavMesh;
-	TGridList GridLinedef;
-	TGridList GridNavMeshLine;
-	static TNavMeshBuilder Create()
-	{
-		TNavMeshBuilder NavMeshBuilder = New('TNavMeshBuilder');
-		NavMeshBuilder.GridLinedef = TGridList.Create();
-		NavMeshBuilder.GridNavMeshLine = TGridList.Create();
-		return NavMeshBuilder;
-	}
 	bool PointInsidePolygon(TPolygon Polygon, TPoint Point)
 	{
 		if (Polygon.Points.Size() < 3)
@@ -1394,7 +1386,7 @@ class TNavMeshBuilder: TCustomNavMesh
 											TestPoint = LinesB[J];
 										else
 											TestPoint = LinesA[J];
-										if (TPartition.InCone(GetX(Points[PreviousPoint]), GetY(Points[PreviousPoint]), GetX(Points[CurrentPoint]), GetY(Points[CurrentPoint]), GetX(Points[NextPoint]), GetY(Points[NextPoint]), GetX(Points[TestPoint]), GetY(Points[TestPoint])))
+										if (InCone(GetX(Points[PreviousPoint]), GetY(Points[PreviousPoint]), GetX(Points[CurrentPoint]), GetY(Points[CurrentPoint]), GetX(Points[NextPoint]), GetY(Points[NextPoint]), GetX(Points[TestPoint]), GetY(Points[TestPoint])))
 											PointCardinality[I]++;
 									}
 								}
@@ -1448,7 +1440,7 @@ class TNavMeshBuilder: TCustomNavMesh
 													TestPoint = LinesB[I];
 												else
 													TestPoint = LinesA[I];
-												if ((TestPoint != PreviousPoint) && (TestPoint != OtherPoint) && (TPartition.InCone(GetX(Points[PreviousPoint]), GetY(Points[PreviousPoint]), GetX(Points[CurrentPoint]), GetY(Points[CurrentPoint]), GetX(Points[OtherPoint]), GetY(Points[OtherPoint]), GetX(Points[TestPoint]), GetY(Points[TestPoint]))))
+												if ((TestPoint != PreviousPoint) && (TestPoint != OtherPoint) && (InCone(GetX(Points[PreviousPoint]), GetY(Points[PreviousPoint]), GetX(Points[CurrentPoint]), GetY(Points[CurrentPoint]), GetX(Points[OtherPoint]), GetY(Points[OtherPoint]), GetX(Points[TestPoint]), GetY(Points[TestPoint]))))
 												{
 													TestAngle = Atan2(GetY(Points[TestPoint]) - GetY(Points[FirstPoint]), GetX(Points[TestPoint]) - GetX(Points[FirstPoint])) - PreviousAngle;
 													if (TestAngle < -M_PI)
@@ -1972,9 +1964,9 @@ class TNavMeshBuilder: TCustomNavMesh
 				TPolygonGroup PolygonGroup = PolygonGroups[I];
 				InputPolygons.Delete(0, InputPolygons.Size());
 				OutputPolygons.Delete(0, OutputPolygons.Size());
-				if (TPartition.RemoveHoles(PolygonGroup, InputPolygons))
+				if (RemoveHoles(PolygonGroup, InputPolygons))
 					for (int I = 0; I < InputPolygons.Size(); I++)
-						TPartition.ConvexPartition_HM(InputPolygons[I], OutputPolygons);
+						ConvexPartition_HM(InputPolygons[I], OutputPolygons);
 				if (OutputPolygons.Size() > 0)
 					ProcessPolygons(OutputPolygons, SectorNumber);
 			}
