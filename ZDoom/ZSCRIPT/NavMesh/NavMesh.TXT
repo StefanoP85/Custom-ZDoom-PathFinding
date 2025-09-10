@@ -405,58 +405,38 @@ enum TOrientation
 	CounterClockwise = 1
 }
 
-// Class TPoint represents a simple point in 2D Euclidean space.
-class TPoint: TCustomNavMesh
-{
-	float X;
-	float Y;
-	static TPoint Create(float X, float Y)
-	{
-		TPoint Point = New('TPoint');
-		Point.X = X;
-		Point.Y = Y;
-		return Point;
-	}
-	static TPoint Add(TPoint A, TPoint B)
-	{
-		return TPoint.Create(A.X + B.X, A.Y + B.Y);
-	}
-	static TPoint Subtract(TPoint A, TPoint B)
-	{
-		return TPoint.Create(A.X - B.X, A.Y - B.Y);
-	}
-	static TPoint Multiply(TPoint A, float F)
-	{
-		return TPoint.Create(A.X * F, A.Y * F);
-	}
-	static TPoint Divide(TPoint A, float F)
-	{
-		return TPoint.Create(A.X / F, A.Y / F);
-	}
-}
-
 // Class TPolygon represents a polygon in 2D Euclidean space, but with floating point arithmetic.
 // It also sorts the points in clockwise or counterclockwise order, with the following rule:
 // If the polygon represents a valid polygon: counterclockwise order is used.
 // If the polygon represents a hole: clockwise order is used.
 class TPolygon: TCustomNavMesh
 {
-	Array<TPoint> Points;
+	Array<int> Points;
 	bool Hole;
 	static TPolygon Create()
 	{
 		TPolygon Polygon = New('TPolygon');
-		Polygon.Hole = False;
+		Polygon.Hole = False;	// No points already.
 		return Polygon;
 	}
-	static TPolygon CreateTriangle(TPoint P1, TPoint P2, TPoint P3)
+	static TPolygon CreateTriangle(int P1, int P2, int P3)
 	{
 		TPolygon Polygon = New('TPolygon');
 		Polygon.Points.Push(P1);
 		Polygon.Points.Push(P2);
 		Polygon.Points.Push(P3);
-		Polygon.Hole = False;
+		Polygon.SetHole(False);	// Sorts the points if necessary.
 		return Polygon;
+	}
+	// Helper function, that get the X coordinate of a vertex.
+	static int GetX(int VertexIndex)
+	{
+		return Level.Vertexes[VertexIndex].P.X;
+	}
+	// Helper function, that get the X coordinate of a vertex.
+	static int GetY(int VertexIndex)
+	{
+		return Level.Vertexes[VertexIndex].P.Y;
 	}
 	TOrientation GetOrientation()
 	{
@@ -467,7 +447,7 @@ class TPolygon: TCustomNavMesh
 			I2 = I1 + 1;
 			if (I2 == Points.Size())
 				I2 = 0;
-			Area += Points[I1].X * Points[I2].Y - Points[I1].Y * Points[I2].X;
+			Area += GetX(Points[I1]) * GetY(Points[I2]) - GetY(Points[I1]) * GetX(Points[I2]);
 		}
 		if (Area > 0)
 			return CounterClockwise;
@@ -485,7 +465,7 @@ class TPolygon: TCustomNavMesh
 			int MidIndex = LastIndex >> 1;
 			for (int I = 0; I < MidIndex; I++)
 			{
-				TPoint P = Points[I];
+				int P = Points[I];
 				Points[I] = Points[LastIndex - I - 1];
 				Points[LastIndex - I - 1] = P;
 			}
@@ -518,14 +498,14 @@ class TPolygonGroup: TCustomNavMesh
 // Class TPartitionVertex is used in the triangulation process.
 class TPartitionVertex: TCustomNavMesh
 {
-	TPoint Point;
+	int Point;
 	bool IsActive;
 	bool IsConvex;
 	bool IsEar;
 	float Angle;
 	TPartitionVertex Previous;
 	TPartitionVertex Next;
-	static TPartitionVertex Create(TPoint Point)
+	static TPartitionVertex Create(int Point)
 	{
 		TPartitionVertex PartitionVertex = New('TPartitionVertex');
 		PartitionVertex.Point = Point;
@@ -703,19 +683,33 @@ class TNavMeshBuilder: TCustomNavMesh
 		NavMeshBuilder.GridNavMeshLine = TGridList.Create();
 		return NavMeshBuilder;
 	}
-	static bool IsConvex(float P1X, float P1Y, float P2X, float P2Y, float P3X, float P3Y)
+	// Helper function, that get the X coordinate of a vertex.
+	static int GetX(int VertexIndex)
+	{
+		return Level.Vertexes[VertexIndex].P.X;
+	}
+	// Helper function, that get the X coordinate of a vertex.
+	static int GetY(int VertexIndex)
+	{
+		return Level.Vertexes[VertexIndex].P.Y;
+	}
+	static bool IsConvex(int P1X, int P1Y, int P2X, int P2Y, int P3X, int P3Y)
 	{
 		return (P3Y - P1Y) * (P2X - P1X) - (P3X - P1X) * (P2Y - P1Y) > 0;
 	}
-	static bool IsConvexPoint(TPoint P1, TPoint P2, TPoint P3)
+	static bool IsConvexPoint(int P1, int P2, int P3)
 	{
-		return (P3.Y - P1.Y) * (P2.X - P1.X) - (P3.X - P1.X) * (P2.Y - P1.Y) > 0;
+		return (GetY(P3) - GetY(P1)) * (GetX(P2) - GetX(P1)) - (GetX(P3) - GetX(P1)) * (GetY(P2) - GetY(P1)) > 0;
 	}
-	static bool IsReflex(TPoint P1, TPoint P2, TPoint P3)
+	static bool IsReflex(int P1X, int P1Y, int P2X, int P2Y, int P3X, int P3Y)
 	{
-		return (P3.Y - P1.Y) * (P2.X - P1.X) - (P3.X - P1.X) * (P2.Y - P1.Y) < 0;
+		return (P3Y - P1Y) * (P2X - P1X) - (P3X - P1X) * (P2Y - P1Y) < 0;
 	}
-	static bool IsInside(TPoint P1, TPoint P2, TPoint P3, TPoint Point)
+	static bool IsReflexPoint(int P1, int P2, int P3)
+	{
+		return (GetY(P3) - GetY(P1)) * (GetX(P2) - GetX(P1)) - (GetX(P3) - GetX(P1)) * (GetY(P2) - GetY(P1)) < 0;
+	}
+	static bool IsInsidePoint(int P1, int P2, int P3, int Point)
 	{
 		if (IsConvexPoint(P1, Point, P2))
 			return False;
@@ -725,7 +719,7 @@ class TNavMeshBuilder: TCustomNavMesh
 			return False;
 		return True;
 	}
-	static bool InCone(float P1X, float P1Y, float P2X, float P2Y, float P3X, float P3Y, float PointX, float PointY)
+	static bool InCone(int P1X, int P1Y, int P2X, int P2Y, int P3X, int P3Y, int PointX, int PointY)
 	{
 		if (IsConvex(P1X, P1Y, P2X, P2Y, P3X, P3Y))
 		{
@@ -744,7 +738,7 @@ class TNavMeshBuilder: TCustomNavMesh
 			return False;
 		}
 	}
-	static bool InConePoint(TPoint P1, TPoint P2, TPoint P3, TPoint Point)
+	static bool InConePoint(int P1, int P2, int P3, int Point)
 	{
 		if (IsConvexPoint(P1, P2, P3))
 		{
@@ -763,38 +757,33 @@ class TNavMeshBuilder: TCustomNavMesh
 			return False;
 		}
 	}
-	static bool Intersects(TPoint P11, TPoint P12, TPoint P21, TPoint P22)
+	static bool Intersects(int P11, int P12, int P21, int P22)
 	{
-		if ((P11.X == P21.X) && (P11.Y == P21.Y))
+		if ((GetX(P11) == GetX(P21)) && (GetY(P11) == GetY(P21)))
 			return False;
-		if ((P11.X == P22.X) && (P11.Y == P22.Y))
+		if ((GetX(P11) == GetX(P22)) && (GetY(P11) == GetY(P22)))
 			return False;
-		if ((P12.X == P21.X) && (P12.Y == P21.Y))
+		if ((GetX(P12) == GetX(P21)) && (GetY(P12) == GetY(P21)))
 			return False;
-		if ((P12.X == P22.X) && (P12.Y == P22.Y))
+		if ((GetX(P12) == GetX(P22)) && (GetY(P12) == GetY(P22)))
 			return False;
-		float V1OrtX = P12.Y - P11.Y;
-		float V1OrtY = P11.X - P12.X;
-		float V2OrtX = P22.Y - P21.Y;
-		float V2OrtY = P21.X - P22.X;
-		float Dot21 = (P21.X - P11.X) * V1OrtX + (P21.Y - P11.Y) * V1OrtY;
-		float Dot22 = (P22.X - P11.X) * V1OrtX + (P22.Y - P11.Y) * V1OrtY;
-		float Dot11 = (P11.X - P21.X) * V2OrtX + (P11.Y - P21.Y) * V2OrtY;
-		float Dot12 = (P12.X - P21.X) * V2OrtX + (P12.Y - P21.Y) * V2OrtY;
+		double V1OrtX = GetY(P12) - GetY(P11);
+		double V1OrtY = GetX(P11) - GetX(P12);
+		double V2OrtX = GetY(P22) - GetY(P21);
+		double V2OrtY = GetX(P21) - GetX(P22);
+		double Dot21 = (GetX(P21) - GetX(P11)) * V1OrtX + (GetY(P21) - GetY(P11)) * V1OrtY;
+		double Dot22 = (GetX(P22) - GetX(P11)) * V1OrtX + (GetY(P22) - GetY(P11)) * V1OrtY;
+		double Dot11 = (GetX(P11) - GetX(P21)) * V2OrtX + (GetY(P11) - GetY(P21)) * V2OrtY;
+		double Dot12 = (GetX(P12) - GetX(P21)) * V2OrtX + (GetY(P12) - GetY(P21)) * V2OrtY;
 		if (Dot11 * Dot12 > 0)
 			return False;
 		if (Dot21 * Dot22 > 0)
 			return False;
 		return True;
 	}
-	static TPoint Normalize(TPoint Point)
+	static Vector2 VectorDifference(int V1, int V2)
 	{
-		TPoint Result;
-		float Val = Sqrt(Point.X * Point.X + Point.Y * Point.Y);
-		if (Val != 0)
-			Result = TPoint.Divide(Point, Val);
-		else
-			Result = TPoint.Create(0, 0);
+		Vector2 Result = Level.Vertexes[V1].P - Level.Vertexes[V2].P;
 		return Result;
 	}
 	static void UpdateVertex(TPartitionVertex Vertex, Array<TPartitionVertex> Vertices, int NumVertices)
@@ -802,21 +791,21 @@ class TNavMeshBuilder: TCustomNavMesh
 		TPartitionVertex V1 = Vertex.Previous;
 		TPartitionVertex V3 = Vertex.Next;
 		Vertex.IsConvex = IsConvexPoint(V1.Point, Vertex.Point, V3.Point);
-		TPoint Vec1 = Normalize(TPoint.Subtract(V1.Point, Vertex.Point));
-		TPoint Vec3 = Normalize(TPoint.Subtract(V3.Point, Vertex.Point));
-		Vertex.Angle = Vec1.X * Vec3.X + Vec1.Y * Vec3.Y;
+		Vector2 Vec1 = VectorDifference(V1.Point, Vertex.Point).Unit();
+		Vector2 Vec3 = VectorDifference(V3.Point, Vertex.Point).Unit();
+		Vertex.Angle = Vec1 dot Vec3;
 		if (Vertex.IsConvex)
 		{
 			Vertex.IsEar = True;
 			for (int I = 0; I < NumVertices; I++)
 			{
-				if ((Vertices[I].Point.X == Vertex.Point.X) && (Vertices[I].Point.Y == Vertex.Point.Y))
+				if ((GetX(Vertices[I].Point) == GetX(Vertex.Point)) && (GetY(Vertices[I].Point) == GetY(Vertex.Point)))
 					continue;
-				if ((Vertices[I].Point.X == V1.Point.X) && (Vertices[I].Point.Y == V1.Point.Y))
+				if ((GetX(Vertices[I].Point) == GetX(V1.Point)) && (GetY(Vertices[I].Point) == GetY(V1.Point)))
 					continue;
-				if ((Vertices[I].Point.X == V3.Point.X) && (Vertices[I].Point.Y == V3.Point.Y))
+				if ((GetX(Vertices[I].Point) == GetX(V3.Point)) && (GetY(Vertices[I].Point) == GetY(V3.Point)))
 					continue;
-				if (IsInside(V1.Point, Vertex.Point, V3.Point, Vertices[I].Point))
+				if (IsInsidePoint(V1.Point, Vertex.Point, V3.Point, Vertices[I].Point))
 				{
 					Vertex.IsEar = False;
 					break;
@@ -849,18 +838,18 @@ class TNavMeshBuilder: TCustomNavMesh
 			{
 				TPolygon Hole = PolygonGroup.Holes[J];
 				for (int I = 0; I < Hole.Points.Size(); I++)
-					if (Hole.Points[I].X > SelectedHole.Points[HolePointIndex].X)
+					if (GetX(Hole.Points[I]) > GetX(SelectedHole.Points[HolePointIndex]))
 					{
 						SelectedHole = Hole;
 						HolePointIndex = I;
 					}
 			}
-			TPoint HolePoint = SelectedHole.Points[HolePointIndex];
+			int HolePoint = SelectedHole.Points[HolePointIndex];
 			bool PointFound = False;
-			TPoint BestPolyPoint = PolygonGroup.Polygon.Points[0];
+			int BestPolyPoint = PolygonGroup.Polygon.Points[0];
 			for (int I = 0; I < PolygonGroup.Polygon.Points.Size(); I++)
 			{
-				if (PolygonGroup.Polygon.Points[I].X <= HolePoint.X)
+				if (GetX(PolygonGroup.Polygon.Points[I]) <= GetX(HolePoint))
 					continue;
 				if (!InConePoint(
 					PolygonGroup.Polygon.Points[(I + PolygonGroup.Polygon.Points.Size() - 1) % (PolygonGroup.Polygon.Points.Size())],
@@ -868,19 +857,19 @@ class TNavMeshBuilder: TCustomNavMesh
 					PolygonGroup.Polygon.Points[(I + 1) % (PolygonGroup.Polygon.Points.Size())],
 					HolePoint))
 				continue;
-				TPoint PolyPoint = PolygonGroup.Polygon.Points[I];
+				int PolyPoint = PolygonGroup.Polygon.Points[I];
 				if (PointFound)
 				{
-					TPoint V1 = Normalize(TPoint.Subtract(PolyPoint, HolePoint));
-					TPoint V2 = Normalize(TPoint.Subtract(BestPolyPoint, HolePoint));
+					Vector2 V1 = VectorDifference(PolyPoint, HolePoint).Unit();
+					Vector2 V2 = VectorDifference(BestPolyPoint, HolePoint).Unit();
 					if (V2.X > V1.X)
 						continue;
 				}
 				bool PointVisible = True;
 				for (int J = 0; J < PolygonGroup.Polygon.Points.Size(); J++)
 				{
-					TPoint LineP1 = PolygonGroup.Polygon.Points[J];
-					TPoint LineP2 = PolygonGroup.Polygon.Points[(J + 1) % (PolygonGroup.Polygon.Points.Size())];
+					int LineP1 = PolygonGroup.Polygon.Points[J];
+					int LineP2 = PolygonGroup.Polygon.Points[(J + 1) % (PolygonGroup.Polygon.Points.Size())];
 					if (Intersects(HolePoint, PolyPoint, LineP1, LineP2))
 					{
 						PointVisible = False;
@@ -1000,7 +989,7 @@ class TNavMeshBuilder: TCustomNavMesh
 				I13 = 0;
 			else
 				I13 = I11 + 1;
-			if (IsReflex(InputPolygon.Points[I12], InputPolygon.Points[I11], InputPolygon.Points[I13]))
+			if (IsReflexPoint(InputPolygon.Points[I12], InputPolygon.Points[I11], InputPolygon.Points[I13]))
 			{
 				NumReflex = 1;
 				break;
@@ -1020,9 +1009,9 @@ class TNavMeshBuilder: TCustomNavMesh
 			TPolygon Polygon2 = null;
 			for (I11 = 0; I11 < Polygon1.Points.Size(); I11++)
 			{
-				TPoint D1 = Polygon1.Points[I11];
+				int D1 = Polygon1.Points[I11];
 				I12 = (I11 + 1) % (Polygon1.Points.Size());
-				TPoint D2 = Polygon1.Points[I12];
+				int D2 = Polygon1.Points[I12];
 				bool IsDiagonal = False;
 				TriangleIndex2 = TriangleIndex1;
 				while (TriangleIndex2 < Triangles.Size())
@@ -1032,10 +1021,10 @@ class TNavMeshBuilder: TCustomNavMesh
 						Polygon2 = Triangles[TriangleIndex2];
 						for (I21 = 0; I21 < Polygon2.Points.Size(); I21++)
 						{
-							if ((D2.X != Polygon2.Points[I21].X) || (D2.Y != Polygon2.Points[I21].Y))
+							if ((GetX(D2) != GetX(Polygon2.Points[I21])) || (GetY(D2) != GetY(Polygon2.Points[I21])))
 								continue;
 							I22 = (I21 + 1) % (Polygon2.Points.Size());
-							if ((D1.X != Polygon2.Points[I22].X) || (D1.Y != Polygon2.Points[I22].Y))
+							if ((GetX(D1) != GetX(Polygon2.Points[I22])) || (GetY(D1) != GetY(Polygon2.Points[I22])))
 								continue;
 							IsDiagonal = True;
 							break;
@@ -1047,17 +1036,17 @@ class TNavMeshBuilder: TCustomNavMesh
 				}
 				if (!IsDiagonal)
 					continue;
-				TPoint P2 = Polygon1.Points[I11];
+				int P2 = Polygon1.Points[I11];
 				if (I11 == 0)
 					I13 = Polygon1.Points.Size() - 1;
 				else
 					I13 = I11 - 1;
-				TPoint P1 = Polygon1.Points[I13];
+				int P1 = Polygon1.Points[I13];
 				if (I22 == (Polygon2.Points.Size() - 1))
 					I23 = 0;
 				else
 					I23 = I22 + 1;
-				TPoint P3 = Polygon2.Points[I23];
+				int P3 = Polygon2.Points[I23];
 				if (!IsConvexPoint(P1, P2, P3))
 					continue;
 				P2 = Polygon1.Points[I12];
@@ -1089,21 +1078,20 @@ class TNavMeshBuilder: TCustomNavMesh
 		OutputPolygons.Append(Triangles);
 		return True;
 	}
-	bool PointInsidePolygon(TPolygon Polygon, TPoint Point)
+	bool PointInsidePolygon(TPolygon Polygon, int Point)
 	{
 		if (Polygon.Points.Size() < 3)
 			return False;
 		bool Result = False;
-		TPoint P1 = Polygon.Points[0];
-		TPoint P2;
-		double IntersectionX;
+		int P1 = Polygon.Points[0];
+		int P2;
 		for (int I = 0; I < Polygon.Points.Size(); I++)
 		{
 			P2 = Polygon.Points[(I + 1) % Polygon.Points.Size()];
-			if ((Point.Y > Min(P1.Y, P2.Y))
-			&& (Point.Y <= Max(P1.Y, P2.Y))
-			&& (Point.X <= Max(P1.X, P2.X))
-			&& ((P1.X == P2.X) || (Point.X <= ((Point.Y - P1.Y) * (P2.X - P1.X) / (P2.Y - P1.Y) + P1.X))))
+			if ((GetY(Point) > Min(GetY(P1), GetY(P2)))
+			&& (GetY(Point) <= Max(GetY(P1), GetY(P2)))
+			&& (GetX(Point) <= Max(GetX(P1), GetX(P2)))
+			&& ((GetX(P1) == GetX(P2)) || (GetX(Point) <= ((GetY(Point) - GetY(P1)) * (GetX(P2) - GetX(P1)) / (GetY(P2) - GetY(P1)) + GetX(P1)))))
 				Result = !Result;
 			P1 = P2;
 		}
@@ -1153,16 +1141,6 @@ class TNavMeshBuilder: TCustomNavMesh
 				for (int X = MinX; X <= MaxX; X++)
 					GridLinedef.Add(X, Y, Level.Lines[I].Index());
 		}
-	}
-	// Helper function, that get the X coordinate of a vertex.
-	int GetX(int VertexIndex)
-	{
-		return Level.Vertexes[VertexIndex].P.X;
-	}
-	// elper function, that get the X coordinate of a vertex.
-	int GetY(int VertexIndex)
-	{
-		return Level.Vertexes[VertexIndex].P.Y;
 	}
 	// Function GetPolygonGroups creates the list of SectorGroup from a SECTOR.
 	const MaxStack = 128;
@@ -1629,7 +1607,7 @@ class TNavMeshBuilder: TCustomNavMesh
 							{
 								TPolygon Polygon = TPolygon.Create();
 								for (I = 0; I < MeshStackCount[MeshStackTOS]; I++)
-									Polygon.Points.Push(TPoint.Create(GetX(Points[MeshStackPoints[MeshStackTOS * StackLength + I]]), GetY(Points[MeshStackPoints[MeshStackTOS * StackLength + I]])));
+									Polygon.Points.Push(Points[MeshStackPoints[MeshStackTOS * StackLength + I]]);
 								Polygon.SetHole(False);
 								Polygons.Push(Polygon);
 								MeshStackTOS--;
@@ -1839,8 +1817,8 @@ class TNavMeshBuilder: TCustomNavMesh
 	{
 		int NumberOfPlanes = Level.Sectors[SectorNumber].Get3DFloorCount();
 		Vector2 TestPoint;
-		TestPoint.X = (Polygons[0].Points[0].X + Polygons[0].Points[1].X) / 2;
-		TestPoint.Y = (Polygons[0].Points[0].Y + Polygons[0].Points[1].Y) / 2;
+		TestPoint.X = (GetX(Polygons[0].Points[0]) + GetX(Polygons[0].Points[1])) / 2;
+		TestPoint.Y = (GetY(Polygons[0].Points[0]) + GetY(Polygons[0].Points[1])) / 2;
 		int HeightFloor = Level.Sectors[SectorNumber].FloorPlane.ZatPoint(TestPoint);
 		int HeightCeiling = Level.Sectors[SectorNumber].CeilingPlane.ZatPoint(TestPoint);
 		Array<int> FloorPlanes;
@@ -1877,10 +1855,10 @@ class TNavMeshBuilder: TCustomNavMesh
 			{
 				int J = (I + 1) % Polygons[PolygonIndex].Points.Size();
 				NavMeshLine = New('TNavMeshLine');
-				NavMeshLine.X1 = Polygons[PolygonIndex].Points[I].X;
-				NavMeshLine.Y1 = Polygons[PolygonIndex].Points[I].Y;
-				NavMeshLine.X2 = Polygons[PolygonIndex].Points[J].X;
-				NavMeshLine.Y2 = Polygons[PolygonIndex].Points[J].Y;
+				NavMeshLine.X1 = GetX(Polygons[PolygonIndex].Points[I]);
+				NavMeshLine.Y1 = GetY(Polygons[PolygonIndex].Points[I]);
+				NavMeshLine.X2 = GetX(Polygons[PolygonIndex].Points[J]);
+				NavMeshLine.Y2 = GetY(Polygons[PolygonIndex].Points[J]);
 				Lines.Push(NavMeshLine);
 			}
 			if (NumberOfPlanes == 0)
@@ -1905,10 +1883,10 @@ class TNavMeshBuilder: TCustomNavMesh
 					{
 						int J = (I + 1) % Polygons[PolygonIndex].Points.Size();
 						NavMeshLine = New('TNavMeshLine');
-						NavMeshLine.X1 = Polygons[PolygonIndex].Points[I].X;
-						NavMeshLine.Y1 = Polygons[PolygonIndex].Points[I].Y;
-						NavMeshLine.X2 = Polygons[PolygonIndex].Points[J].X;
-						NavMeshLine.Y2 = Polygons[PolygonIndex].Points[J].Y;
+						NavMeshLine.X1 = GetX(Polygons[PolygonIndex].Points[I]);
+						NavMeshLine.Y1 = GetY(Polygons[PolygonIndex].Points[I]);
+						NavMeshLine.X2 = GetX(Polygons[PolygonIndex].Points[J]);
+						NavMeshLine.Y2 = GetY(Polygons[PolygonIndex].Points[J]);
 						Lines.Push(NavMeshLine);
 					}
 					NavMeshPolygon.HeightFloor = CeilingPlanes[Plane];
