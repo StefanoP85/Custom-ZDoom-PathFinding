@@ -1055,11 +1055,8 @@ public class TNavMesh : Object
                 else
                     MapLinedefIndex++;
             }
-            if (NotFound)
-                MapLinedefIndex = -1;
-            else
-                MapLinedefIndex = Lines.Keys[MapLinedefIndex];
-            Line.MapLinedef = MapLinedefIndex;
+            if (!NotFound)
+                Line.MapLinedef = Lines.Keys[MapLinedefIndex];
             // Check for portals.
             Lines.Clear();
             GridNavMeshLine.Fill(MinX, MaxX, MinY, MaxY, Lines);
@@ -1089,10 +1086,10 @@ public class TNavMesh : Object
                     // Check if there is enough vertical space between the two connecting sectors.
                     if (Math.Min(Polygon.HeightCeiling, NavMeshPolygons[CurrentPolygonIndex].HeightCeiling) - Math.Max(Polygon.HeightFloor, NavMeshPolygons[CurrentPolygonIndex].HeightFloor) < ActorHeight)
                         LineIsPortal = false;
-                    if (MapLinedefIndex >= 0)
+                    if (Line.MapLinedef >= 0)
                     {
                         // Check if the LINEDEF blocks monsters.
-                        TMapLinedef MapLinedef = MapDefinition.MapLinedef[MapLinedefIndex];
+                        TMapLinedef MapLinedef = MapDefinition.MapLinedef[Line.MapLinedef];
                         if ((MapLinedef.Blocking) || (MapLinedef.SideFront < 0) || (MapLinedef.SideBack < 0) || (MapLinedef.Ignored))
                             LineIsPortal = false;
                     }
@@ -1133,11 +1130,10 @@ public class TNavMesh : Object
         {
             if (TPartition.ConvexPartition_HM(Polygon, Polygons))
             {
-                for (int PolyhedronIndex = 0; PolyhedronIndex < PolyhedronCeilings.Count; PolyhedronIndex++)
+                foreach (TPolygon SplitPolygon in Polygons)
                 {
-                    foreach (TPolygon SplitPolygon in Polygons)
+                    for (int PolyhedronIndex = 0; PolyhedronIndex < PolyhedronCeilings.Count; PolyhedronIndex++)
                     {
-                        // Generate the mesh polygon.
                         TNavMeshPolygon NavMeshPolygon = new TNavMeshPolygon();
                         NavMeshPolygon.HeightFloor = PolyhedronFloors[PolyhedronIndex];
                         NavMeshPolygon.HeightCeiling = PolyhedronCeilings[PolyhedronIndex];
@@ -1147,12 +1143,11 @@ public class TNavMesh : Object
                             int J = (I + 1) % SplitPolygon.Points.Count;
                             NavMeshPolygon.Lines.Add(
                                 new TNavMeshLine(
-                                    new TNavMeshPoint(Convert.ToInt32(SplitPolygon.Points[I].X), Convert.ToInt32(SplitPolygon.Points[I].Y)),
-                                    new TNavMeshPoint(Convert.ToInt32(SplitPolygon.Points[J].X), Convert.ToInt32(SplitPolygon.Points[J].Y))
+                                    new TNavMeshPoint(SplitPolygon.Points[I].X, SplitPolygon.Points[I].Y),
+                                    new TNavMeshPoint(SplitPolygon.Points[J].X, SplitPolygon.Points[J].Y)
                                 )
                             );
                         }
-                        // Append the mesh polygon to the navigation mesh.
                         ProcessPolygonMesh(NavMeshPolygon);
                     }
                 }
@@ -1776,14 +1771,14 @@ public class TNavMesh : Object
                 int StartFloor = MapSector.HeightFloor;
                 for (int I = 0; I < PlaneFloors.Count; I++)
                 {
-                    if ((PlaneFloors[I] - StartFloor) > 0)
+                    if ((PlaneFloors[I] - StartFloor) > ActorHeight)
                     {
                         PolyhedronCeilings.Add(PlaneFloors[I]);
                         PolyhedronFloors.Add(StartFloor);
                     }
                     StartFloor = PlaneCeilings[I];
                 }
-                if ((StartFloor - MapSector.HeightCeiling) > 0)
+                if ((MapSector.HeightCeiling - StartFloor) > ActorHeight)
                 {
                     PolyhedronCeilings.Add(MapSector.HeightCeiling);
                     PolyhedronFloors.Add(StartFloor);
