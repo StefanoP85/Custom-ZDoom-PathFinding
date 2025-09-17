@@ -29,16 +29,19 @@ class TGridPage: TCustomNavMesh
 class TGridList: TCustomNavMesh
 {
 	const MaxPages = 1024;
+	const MaxGridChains = 65536;
+	const MaxSearchResults = 4096;
 	TGridPage GridPages[MaxPages];
-	int GridChains[65536];
+	int GridChains[MaxGridChains];
 	int GridCount;
-	int SearchResults[4096];
+	int SearchResults[MaxSearchResults];
 	int SearchResultCount;
 	void Clear()
 	{
 		GridCount = 0;
-		for (int I = 0; I < 65536; I++)
+		for (int I = 0; I < MaxGridChains; I++)
 			GridChains[I] = -1;
+		SearchResultCount = 0;
 	}
 	void ClearSearchResult()
 	{
@@ -58,6 +61,11 @@ class TGridList: TCustomNavMesh
 				First = Pivot + 1;
 			else
 				Last = Pivot - 1;
+		}
+		if (SearchResultCount >= MaxSearchResults)
+		{
+			//Console.Printf("NavMesh building, TGridList.SearchResult: hit limit reached, %i", MaxSearchResults);
+			return;
 		}
 		for (int I = SearchResultCount - 1; I >= First; I--)
 			SearchResults[I + 1] = SearchResults[I];
@@ -417,132 +425,6 @@ class TNavMesh : TCustomNavMesh
 }
 
 // -----------------------------------------------------------------------------
-// Navigation mesh builder.
-// -----------------------------------------------------------------------------
-
-// Enum TOrientation represents the possible ways of aligning 3 points in the 2D Euclidean space.
-enum TOrientation
-{
-	Clockwise = -1,
-	Collinear = 0,
-	CounterClockwise = 1
-}
-
-// Class TPolygon represents a polygon in 2D Euclidean space, but with floating point arithmetic.
-// It also sorts the points in clockwise or counterclockwise order, with the following rule:
-// If the polygon represents a valid polygon: counterclockwise order is used.
-// If the polygon represents a hole: clockwise order is used.
-class TPolygon: TCustomNavMesh
-{
-	Array<int> Points;
-	bool Hole;
-	static TPolygon Create()
-	{
-		TPolygon Polygon = New('TPolygon');
-		Polygon.Hole = False;	// No points already.
-		return Polygon;
-	}
-	static TPolygon CreateTriangle(int P1, int P2, int P3)
-	{
-		TPolygon Polygon = New('TPolygon');
-		Polygon.Points.Push(P1);
-		Polygon.Points.Push(P2);
-		Polygon.Points.Push(P3);
-		Polygon.SetHole(False);	// Sorts the points if necessary.
-		return Polygon;
-	}
-	// Helper function, that get the X coordinate of a vertex.
-	static int GetX(int VertexIndex)
-	{
-		return Level.Vertexes[VertexIndex].P.X;
-	}
-	// Helper function, that get the X coordinate of a vertex.
-	static int GetY(int VertexIndex)
-	{
-		return Level.Vertexes[VertexIndex].P.Y;
-	}
-	TOrientation GetOrientation()
-	{
-		int I1, I2;
-		float Area = 0;
-		for (I1 = 0; I1 < Points.Size(); I1++)
-		{
-			I2 = I1 + 1;
-			if (I2 == Points.Size())
-				I2 = 0;
-			Area += GetX(Points[I1]) * GetY(Points[I2]) - GetY(Points[I1]) * GetX(Points[I2]);
-		}
-		if (Area > 0)
-			return CounterClockwise;
-		if (Area < 0)
-			return Clockwise;
-		return Collinear;
-	}
-	void SetOrientation(TOrientation Orientation)
-	{
-		TOrientation ActuralOrientation = GetOrientation();
-		if ((ActuralOrientation != Collinear) && (ActuralOrientation != Orientation))
-		{
-			// Reverse the array.
-			int LastIndex = Points.Size();
-			int MidIndex = LastIndex >> 1;
-			for (int I = 0; I < MidIndex; I++)
-			{
-				int P = Points[I];
-				Points[I] = Points[LastIndex - I - 1];
-				Points[LastIndex - I - 1] = P;
-			}
-		}
-	}
-	void SetHole(bool Hole)
-	{
-		self.Hole = Hole;
-		if (Hole)
-			SetOrientation(Clockwise);
-		else
-			SetOrientation(CounterClockwise);
-	}
-}
-
-// Class TPolygonGroup represents a polygon in the map, obtained from a SECTOR, with SIDEDEF, LINEDEF and VERTEX data.
-// The SectorGroup is defined by the outer edges of the polygon and optionally the holes.
-class TPolygonGroup: TCustomNavMesh
-{
-	TPolygon Polygon;
-	Array<TPolygon> Holes;
-	static TPolygonGroup Create(TPolygon Polygon)
-	{
-		TPolygonGroup PolygonGroup = New('TPolygonGroup');
-		PolygonGroup.Polygon = Polygon;
-		return PolygonGroup;
-	}
-}
-
-// Class TPartitionVertex is used in the triangulation process.
-class TPartitionVertex: TCustomNavMesh
-{
-	int Point;
-	bool IsActive;
-	bool IsConvex;
-	bool IsEar;
-	float Angle;
-	TPartitionVertex Previous;
-	TPartitionVertex Next;
-	static TPartitionVertex Create(int Point)
-	{
-		TPartitionVertex PartitionVertex = New('TPartitionVertex');
-		PartitionVertex.Point = Point;
-		PartitionVertex.IsActive = False;
-		PartitionVertex.IsConvex = False;
-		PartitionVertex.IsEar = False;
-		PartitionVertex.Angle = 0;
-		PartitionVertex.Previous = PartitionVertex;
-		PartitionVertex.Next = PartitionVertex;
-		return PartitionVertex;
-	}
-}
-
-// -----------------------------------------------------------------------------
 // NavMesh reader.
 // -----------------------------------------------------------------------------
 
@@ -688,24 +570,221 @@ class TNavMeshReader : TCustomNavMesh
 }
 
 // -----------------------------------------------------------------------------
-// NavMesh main class.
+// NavMesh builder.
 // -----------------------------------------------------------------------------
+
+class TPolygons : TCustomNavMesh
+{
+	const MaxPoints = 8192;
+	const MaxPolygons = 4096;
+	enum TOrientation
+	{
+		Clockwise = -1,
+		Collinear = 0,
+		CounterClockwise = 1
+	}
+	int Points[MaxPoints];
+	short PointCount;
+	short PolygonCount;
+	short PolygonsCount[MaxPolygons];
+	short PolygonsFirst[MaxPolygons];
+	void Clear()
+	{
+		PointCount = 0;
+		PolygonCount = 0;
+	}
+	int GetPolygonCount()
+	{
+		return PolygonCount;
+	}
+	int GetPolygonPointCount(int PolygonNumber)
+	{
+		return PolygonsCount[PolygonNumber];
+	}
+	int GetPolygonPoint(int PolygonNumber, int Index)
+	{
+		return Points[PolygonsFirst[PolygonNumber] + Index];
+	}
+	int NewPolygon(int FirstPoint)
+	{
+		int Result = PolygonCount;
+		Points[PointCount] = FirstPoint;
+		PolygonsCount[Result] = 1;
+		PolygonsFirst[Result] = Pointcount;
+		PointCount++;
+		PolygonCount++;
+		return Result;
+	}
+	void NewPoint(int PolygonNumber, int Point, int Index = -1)
+	{
+		int PointIndex = PolygonsFirst[PolygonNumber];
+		if (Index >= 0)
+			PointIndex += Index;
+		else
+			PointIndex += PolygonsCount[PolygonNumber];
+		for (int I = PointCount - 1; I > PointIndex; I--)
+			Points[I + 1] = Points[I];
+		Points[PointIndex] = Point;
+		PointCount++;
+		PolygonsCount[PolygonNumber]++;
+	}
+	int NewTriangle(int P1, int P2, int P3)
+	{
+		int Triangle = NewPolygon(P1);
+		NewPoint(Triangle, P2);
+		NewPoint(Triangle, P3);
+		return Triangle;
+	}
+	void UpdatePoint(int PolygonNumber, int Index, int Point)
+	{
+		if (Index > (PolygonsCount[PolygonNumber]))
+			return;
+		if (Index == (PolygonsCount[PolygonNumber]))
+			NewPoint(PolygonNumber, Point);
+		else
+			Points[PolygonsFirst[PolygonNumber] + Index] = Point;
+	}
+	void DeletePoint(int PolygonNumber, int PointIndex)
+	{
+		int PointIndex = PolygonsFirst[PolygonNumber] + PointIndex;
+		for (int I = PointIndex; I < PointCount - 1; I++)
+			Points[I] = Points[I + 1];
+		PointCount--;
+	}
+	void DeletePolygon(int PolygonNumber)
+	{
+		int Count = PolygonsCount[PolygonNumber];
+		int PointIndex = PolygonsFirst[PolygonNumber];
+		for (int I = PointIndex; I < PointCount - Count - 1; I++)
+			Points[I] = Points[I + Count];
+		PointCount -= PointCount;
+		for (int I = PolygonNumber; I < PolygonCount - 1; I++)
+		{
+			PolygonsCount[I] = PolygonsCount[I + 1];
+			PolygonsFirst[I] = PolygonsFirst[I + 1];
+		}
+	}
+	static int GetX(int VertexIndex)
+	{
+		return Level.Vertexes[VertexIndex].P.X;
+	}
+	static int GetY(int VertexIndex)
+	{
+		return Level.Vertexes[VertexIndex].P.Y;
+	}
+	TOrientation GetOrientation(int PolygonNumber)
+	{
+		int I, J;
+		int FirstPoint = PolygonsFirst[PolygonNumber];
+		double Area = 0;
+		for (I = 0; I < PolygonsCount[PolygonNumber]; I++)
+		{
+			J = (I + 1) % PolygonsCount[PolygonNumber];
+			Area += GetX(Points[FirstPoint + I]) * GetY(Points[FirstPoint + J]) - GetY(Points[FirstPoint + I]) * GetX(Points[FirstPoint + J]);
+		}
+		if (Area > 0)
+			return CounterClockwise;
+		if (Area < 0)
+			return Clockwise;
+		return Collinear;
+	}
+	void SetOrientation(int PolygonNumber, TOrientation Orientation)
+	{
+		int FirstPoint, LastPoint, Temp;
+		TOrientation ActuralOrientation = GetOrientation(PolygonNumber);
+		if ((ActuralOrientation != Collinear) && (ActuralOrientation != Orientation))
+		{
+			// Reverse the array.
+			int FirstPoint = PolygonsFirst[PolygonNumber];
+			int LastPoint = FirstPoint + PolygonsFirst[PolygonNumber] - 1;
+			while (FirstPoint < LastPoint)
+			{
+				Temp = Points[FirstPoint];
+				Points[FirstPoint] = Points[LastPoint];
+				Points[LastPoint] = Temp;
+				FirstPoint++;
+				LastPoint--;
+			}
+		}
+	}
+	void SetHole(int PolygonNumber, bool Hole)
+	{
+		if (Hole)
+			SetOrientation(PolygonNumber, Clockwise);
+		else
+			SetOrientation(PolygonNumber, CounterClockwise);
+	}
+	static TPolygons Create()
+	{
+		TPolygons Polygons = New('TPolygons');
+		Polygons.Clear();
+		return Polygons;
+	}
+}
 
 class TNavMeshBuilder: TCustomNavMesh
 {
+	// Offset added to each coordinate, to have non-negative values.
 	const GridOffset = 32768;
+	// Settings of the NavMesh agents.
 	int ActorHeight;
 	int ActorWidth;
+	// NavMesh being built.
 	TNavMesh NavMesh;
+	// Caches.
 	TGridList GridLinedef;
 	TGridList GridNavMeshLine;
-	static TNavMeshBuilder Create()
-	{
-		TNavMeshBuilder NavMeshBuilder = New('TNavMeshBuilder');
-		NavMeshBuilder.GridLinedef = TGridList.Create();
-		NavMeshBuilder.GridNavMeshLine = TGridList.Create();
-		return NavMeshBuilder;
-	}
+	TPolygons InputPolygons;
+	TPolygons OutputPolygons;
+	TPolygons SectorPolygons;
+	TPolygons Triangles;
+	// ProcessMapData data.
+	const MaxPlanes = 32;
+	const MaxVertexes = 2048;
+	int PlaneCeilings[MaxPlanes];
+	int PlaneFloors[MaxPlanes];
+	short PlaneCount;
+	int PolyhedronCeilings[MaxPlanes];
+	int PolyhedronFloors[MaxPlanes];
+	short PolyhedronCount;
+	int VertexBegin[MaxVertexes];
+	int VertexEnd[MaxVertexes];
+	short VertexCount;
+	// ProcessSectors data.
+	const StackLength = MaxPoints * 4;
+	const MaxStack = 128;
+	const MaxPoints = MaxVertexes * 2;
+	const MaxPolygons = MaxVertexes;
+	int Points[MaxPoints];
+	short PointCount;
+	short LinesA[MaxVertexes];
+	short LinesB[MaxVertexes];
+	short LineCount;
+	short PointCardinality[MaxPoints];
+	short PolygonDepthLevel[MaxPoints];
+	bool OpenPoints[MaxPoints];
+	bool OpenLines[MaxPoints];
+	short PointQueue[MaxPoints];
+	short PointQueueHead;
+	short PointQueueTail;
+	short MeshStackPoints[MaxStack * MaxPoints];
+	short MeshStackCount[MaxStack];
+	short MeshStackTOS;
+	short OuterPerimeterPoints[MaxPoints];
+	short OuterPerimeterPointCount, OuterPerimeterPointStart;
+	short InnerChordPoints[MaxPoints];
+	short InnerChordPointCount, InnerChordPointLoop;
+	short OuterChordPoints[MaxPoints];
+	short OuterChordPointCount, ChordBegin, ChordEnd;
+	// ProcessSectors data.
+	int PartitionPoint[MaxPoints];
+	bool PartitionPointIsActive[MaxPoints];
+	bool PartitionPointIsConvex[MaxPoints];
+	bool PartitionPointIsEar[MaxPoints];
+	float PartitionPointAngle[MaxPoints];
+	short PartitionPointPrev[MaxPoints];
+	short PartitionPointNext[MaxPoints];
+	int NewPolygons[MaxPoints];
 	// Helper function, that get the X coordinate of a vertex.
 	static int GetX(int VertexIndex)
 	{
@@ -809,78 +888,88 @@ class TNavMeshBuilder: TCustomNavMesh
 		Vector2 Result = Level.Vertexes[V1].P - Level.Vertexes[V2].P;
 		return Result;
 	}
-	static void UpdateVertex(TPartitionVertex Vertex, Array<TPartitionVertex> Vertices, int NumVertices)
+	void UpdateVertex(int PartitionPointIndex)
 	{
-		TPartitionVertex V1 = Vertex.Previous;
-		TPartitionVertex V3 = Vertex.Next;
-		Vertex.IsConvex = IsConvexPoint(V1.Point, Vertex.Point, V3.Point);
-		Vector2 Vec1 = VectorDifference(V1.Point, Vertex.Point).Unit();
-		Vector2 Vec3 = VectorDifference(V3.Point, Vertex.Point).Unit();
-		Vertex.Angle = Vec1 dot Vec3;
-		if (Vertex.IsConvex)
+		int Prev = PartitionPoint[PartitionPointPrev[PartitionPointIndex]];
+		int This = PartitionPoint[PartitionPointIndex];
+		int Next = PartitionPoint[PartitionPointNext[PartitionPointIndex]];
+		PartitionPointIsConvex[PartitionPointIndex] = IsConvex(
+			Level.Vertexes[Prev].P.X, Level.Vertexes[Prev].P.Y,
+			Level.Vertexes[This].P.X, Level.Vertexes[This].P.Y,
+			Level.Vertexes[Next].P.X, Level.Vertexes[Next].P.Y
+		);
+		Vector2 VecPrev = VectorDifference(Prev, This).Unit();
+		Vector2 VecNext = VectorDifference(Next, This).Unit();
+		PartitionPointAngle[PartitionPointIndex] = VecPrev dot VecNext;
+		if (PartitionPointIsConvex[PartitionPointIndex])
 		{
-			Vertex.IsEar = True;
-			for (int I = 0; I < NumVertices; I++)
+			PartitionPointIsEar[PartitionPointIndex] = True;
+			for (int I = 0; I < InputPolygons.GetPolygonPointCount(0); I++)
 			{
-				if ((GetX(Vertices[I].Point) == GetX(Vertex.Point)) && (GetY(Vertices[I].Point) == GetY(Vertex.Point)))
+				if ((GetX(PartitionPoint[I]) == GetX(This)) && (GetY(PartitionPoint[I]) == GetY(This)))
 					continue;
-				if ((GetX(Vertices[I].Point) == GetX(V1.Point)) && (GetY(Vertices[I].Point) == GetY(V1.Point)))
+				if ((GetX(PartitionPoint[I]) == GetX(Prev)) && (GetY(PartitionPoint[I]) == GetY(Prev)))
 					continue;
-				if ((GetX(Vertices[I].Point) == GetX(V3.Point)) && (GetY(Vertices[I].Point) == GetY(V3.Point)))
+				if ((GetX(PartitionPoint[I]) == GetX(Next)) && (GetY(PartitionPoint[I]) == GetY(Next)))
 					continue;
-				if (IsInsidePoint(V1.Point, Vertex.Point, V3.Point, Vertices[I].Point))
+				if (IsInsidePoint(Prev, This, Next, PartitionPoint[I]))
 				{
-					Vertex.IsEar = False;
+					PartitionPointIsEar[PartitionPointIndex] = False;
 					break;
 				}
 			}
 		}
 		else
-			Vertex.IsEar = False;
+			PartitionPointIsEar[PartitionPointIndex];
 	}
-	// Function RemoveHoles is a simple heuristic procedure for removing holes from a list of polygons.
-	// It works by creating a diagonal from the right-most hole  to some other visible vertex.
-	// Vertices of all non-hole polys have to be in counter-clockwise order.
-	// Vertices of all hole polys have to be in clockwise order.
-	// Returns True if the process is successful.
-	static bool RemoveHoles(TPolygonGroup PolygonGroup, out Array<TPolygon> OutputPolygons)
+// -----------------------------------------------------------------------------
+// RemoveHoles
+// -----------------------------------------------------------------------------
+// Function RemoveHoles is a simple heuristic procedure for removing holes from a list of polygons.
+// It works by creating a diagonal from the right-most hole  to some other visible vertex.
+// Vertices of all non-hole polys have to be in counter-clockwise order.
+// Vertices of all hole polys have to be in clockwise order.
+// Returns True if the process is successful.
+// -----------------------------------------------------------------------------
+	bool RemoveHoles()
 	{
+		int CurrentPolygon;
 		// Check for the trivial case of no holes.
-		if (PolygonGroup.Holes.Size() == 0)
+		if (InputPolygons.GetPolygonCount() == 1)
 		{
-			OutputPolygons.Push(PolygonGroup.Polygon);
 			return True;
 		}
-		while (PolygonGroup.Holes.Size() > 0)
+		while (InputPolygons.GetPolygonCount() > 1)
 		{
 			// Find the hole point with the largest X.
-			TPolygon SelectedHole = PolygonGroup.Holes[0];
+			int SelectedHole = 1;
 			int HolePointIndex = 0;
 			int PolyPointIndex = 0;
-			for (int J = 0; J < PolygonGroup.Holes.Size(); J++)
+			for (int J = 1; J < InputPolygons.GetPolygonCount(); J++)
 			{
-				TPolygon Hole = PolygonGroup.Holes[J];
-				for (int I = 0; I < Hole.Points.Size(); I++)
-					if (GetX(Hole.Points[I]) > GetX(SelectedHole.Points[HolePointIndex]))
+				for (int I = 0; I < InputPolygons.GetPolygonPointCount(J); I++)
+				{
+					if (GetX(InputPolygons.GetPolygonPoint(J, I)) > GetX(InputPolygons.GetPolygonPoint(SelectedHole, HolePointIndex)))
 					{
-						SelectedHole = Hole;
+						SelectedHole = J;
 						HolePointIndex = I;
 					}
+				}
 			}
-			int HolePoint = SelectedHole.Points[HolePointIndex];
+			int HolePoint = InputPolygons.GetPolygonPoint(SelectedHole, HolePointIndex);
 			bool PointFound = False;
-			int BestPolyPoint = PolygonGroup.Polygon.Points[0];
-			for (int I = 0; I < PolygonGroup.Polygon.Points.Size(); I++)
+			int BestPolyPoint = InputPolygons.GetPolygonPoint(0, 0);
+			for (int I = 0; I < InputPolygons.GetPolygonPointCount(0); I++)
 			{
-				if (GetX(PolygonGroup.Polygon.Points[I]) <= GetX(HolePoint))
+				if (GetX(InputPolygons.GetPolygonPoint(0, I)) <= GetX(HolePoint))
 					continue;
 				if (!InConePoint(
-					PolygonGroup.Polygon.Points[(I + PolygonGroup.Polygon.Points.Size() - 1) % (PolygonGroup.Polygon.Points.Size())],
-					PolygonGroup.Polygon.Points[I],
-					PolygonGroup.Polygon.Points[(I + 1) % (PolygonGroup.Polygon.Points.Size())],
+					InputPolygons.GetPolygonPoint(0, (I + InputPolygons.GetPolygonPointCount(0) - 1) % InputPolygons.GetPolygonPointCount(0)),
+					InputPolygons.GetPolygonPoint(0, I),
+					InputPolygons.GetPolygonPoint(0, (I + 1) % (InputPolygons.GetPolygonPointCount(0))),
 					HolePoint))
 				continue;
-				int PolyPoint = PolygonGroup.Polygon.Points[I];
+				int PolyPoint = InputPolygons.GetPolygonPoint(0, I);
 				if (PointFound)
 				{
 					Vector2 V1 = VectorDifference(PolyPoint, HolePoint).Unit();
@@ -889,10 +978,10 @@ class TNavMeshBuilder: TCustomNavMesh
 						continue;
 				}
 				bool PointVisible = True;
-				for (int J = 0; J < PolygonGroup.Polygon.Points.Size(); J++)
+				for (int J = 0; J < InputPolygons.GetPolygonPointCount(0); J++)
 				{
-					int LineP1 = PolygonGroup.Polygon.Points[J];
-					int LineP2 = PolygonGroup.Polygon.Points[(J + 1) % (PolygonGroup.Polygon.Points.Size())];
+					int LineP1 = InputPolygons.GetPolygonPoint(0, J);
+					int LineP2 = InputPolygons.GetPolygonPoint(0, (J + 1) % (InputPolygons.GetPolygonPointCount(0)));
 					if (Intersects(HolePoint, PolyPoint, LineP1, LineP2))
 					{
 						PointVisible = False;
@@ -908,111 +997,117 @@ class TNavMeshBuilder: TCustomNavMesh
 			}
 			if (!PointFound)
 				return False;
-			for (int I = 0; I <= SelectedHole.Points.Size(); I++)
-				PolygonGroup.Polygon.Points.Insert(PolyPointIndex + I + 1, SelectedHole.Points[(I + HolePointIndex) % SelectedHole.Points.Size()]);
-			PolygonGroup.Polygon.Points.Insert(PolyPointIndex + SelectedHole.Points.Size() + 2, PolygonGroup.Polygon.Points[PolyPointIndex]);
-			PolygonGroup.Holes.Delete(PolygonGroup.Holes.Find(SelectedHole));
+			for (int I = 0; I <= InputPolygons.GetPolygonPointCount(SelectedHole); I++)
+				InputPolygons.NewPoint(0, InputPolygons.GetPolygonPoint(SelectedHole, (I + HolePointIndex) % InputPolygons.GetPolygonPointCount(SelectedHole)), PolyPointIndex + I + 1);
+			InputPolygons.NewPoint(0, InputPolygons.GetPolygonPoint(0, PolyPointIndex), PolyPointIndex + InputPolygons.GetPolygonPointCount(SelectedHole) + 2);
+			InputPolygons.DeletePolygon(SelectedHole);
 		}
-		OutputPolygons.Push(PolygonGroup.Polygon);
 		return True;
 	}
-	// Function Triangulate_EC triangulates a polygon by ear clipping.
-	// Returns True if the process is successful.
-	static bool Triangulate_EC(TPolygon InputPolygon, out Array<TPolygon> OutputPolygons)
+// -----------------------------------------------------------------------------
+// Triangulate_EC
+// -----------------------------------------------------------------------------
+// Function Triangulate_EC triangulates a polygon by ear clipping.
+// Returns True if the process is successful.
+// -----------------------------------------------------------------------------
+	bool Triangulate_EC()
 	{
-		if (InputPolygon.Points.Size() < 3)
+		int NumVertices = InputPolygons.GetPolygonPointCount(0);
+		if (NumVertices < 3)
 			return False;
-		if (InputPolygon.Points.Size() == 3)
+		// Check if the poly is already a triangle.
+		if (NumVertices == 3)
 		{
-			OutputPolygons.Push(InputPolygon);
+			Triangles.NewTriangle(
+				InputPolygons.GetPolygonPoint(0, 0),
+				InputPolygons.GetPolygonPoint(0, 1),
+				InputPolygons.GetPolygonPoint(0, 2)
+			);
 			return True;
 		}
-		int NumVertices = InputPolygon.Points.Size();
-		Array<TPartitionVertex> Vertices;
-		Vertices.Reserve(NumVertices);
-		for (int I = 0; I < NumVertices; I++)
-			Vertices[I] = TPartitionVertex.Create(InputPolygon.Points[I]);
-		TPartitionVertex Ear = Vertices[0];
 		for (int I = 0; I < NumVertices; I++)
 		{
-			Vertices[I].IsActive = True;
-			if (I == (NumVertices - 1))
-				Vertices[I].Next = Vertices[0];
-			else
-				Vertices[I].Next = Vertices[I + 1];
-			if (I == 0)
-				Vertices[I].Previous = Vertices[NumVertices - 1];
-			else
-				Vertices[I].Previous = Vertices[I - 1];
+			PartitionPoint[I] = InputPolygons.GetPolygonPoint(0, I);
+			PartitionPointIsActive[I] = True;
+			PartitionPointIsConvex[I] = False;
+			PartitionPointIsEar[I] = False;
+			PartitionPointAngle[I] = 0;
+			PartitionPointPrev[I] = (I + NumVertices - 1) % NumVertices;
+			PartitionPointNext[I] = (I + 1) % NumVertices;
 		}
+		int EarIndex = 0;
 		for (int I = 0; I < NumVertices; I++)
-			UpdateVertex(Vertices[I], Vertices, NumVertices);
+			UpdateVertex(I);
 		for (int I = 0; I < NumVertices - 3; I++)
 		{
 			bool EarFound = False;
 			// Search the most extruded ear.
 			for (int J = 0; J < NumVertices; J++)
 			{
-				if (!Vertices[J].IsActive)
+				if (!PartitionPointIsActive[J])
 					continue;
-				if (!Vertices[J].IsEar)
+				if (!PartitionPointIsEar[J])
 					continue;
 				if (!EarFound)
 				{
 					EarFound = True;
-					Ear = Vertices[J];
+					EarIndex = J;
 				}
 				else
 				{
-					if (Vertices[J].Angle > Ear.Angle)
-						Ear = Vertices[J];
+					if (PartitionPointAngle[J] > PartitionPointAngle[EarIndex])
+						EarIndex = J;
 				}
 			}
 			if (!EarFound)
 				return False;
-			TPolygon Triangle = TPolygon.CreateTriangle(Ear.Previous.Point, Ear.Point, Ear.Next.Point);
-			OutputPolygons.Push(Triangle);
-			Ear.IsActive = False;
-			Ear.Previous.Next = Ear.Next;
-			Ear.Next.Previous = Ear.Previous;
+			int Triangle = Triangles.NewTriangle(
+				PartitionPoint[PartitionPointPrev[EarIndex]],
+				PartitionPoint[EarIndex],
+				PartitionPoint[PartitionPointNext[EarIndex]]
+			);
+			PartitionPointIsEar[EarIndex] = False;
+			PartitionPointNext[PartitionPointPrev[EarIndex]] = PartitionPointNext[EarIndex];
+			PartitionPointPrev[PartitionPointNext[EarIndex]] = PartitionPointPrev[EarIndex];
 			if (I == NumVertices - 4)
 				break;
-			UpdateVertex(Ear.Previous, Vertices, NumVertices);
-			UpdateVertex(Ear.Next, Vertices, NumVertices);
+			UpdateVertex(PartitionPointPrev[EarIndex]);
+			UpdateVertex(PartitionPointNext[EarIndex]);
 		}
 		for (int I = 0; I < NumVertices; I++)
-			if (Vertices[I].IsActive)
+			if (PartitionPointIsActive[I])
 			{
-				TPolygon Triangle = TPolygon.CreateTriangle(Vertices[I].Previous.Point, Vertices[I].Point, Vertices[I].Next.Point);
-				OutputPolygons.Push(Triangle);
+				int Triangle = Triangles.NewTriangle(
+					PartitionPoint[PartitionPointPrev[I]],
+					PartitionPoint[I],
+					PartitionPoint[PartitionPointNext[I]]
+				);
 				break;
 			}
 		return True;
 	}
-	// Function ConvexPartition_HM partitions a polygon into convex polygons by using the
-	// Hertel-Mehlhorn algorithm. The algorithm gives at most four times the number of parts as the optimal algorithm,
-	// however, in practice it works much better than that and often gives optimal partition.
-	// It uses triangulation obtained by ear clipping as intermediate result.
-	// Returns True if the process is successful.
-	static bool ConvexPartition_HM(TPolygon InputPolygon, out Array<TPolygon> OutputPolygons)
+// -----------------------------------------------------------------------------
+// ConvexPartition_HM
+// -----------------------------------------------------------------------------
+// Function ConvexPartition_HM partitions a polygon into convex polygons by using the
+// Hertel-Mehlhorn algorithm. The algorithm gives at most four times the number of parts as the optimal algorithm,
+// however, in practice it works much better than that and often gives optimal partition.
+// It uses triangulation obtained by ear clipping as intermediate result.
+// Returns True if the process is successful.
+// -----------------------------------------------------------------------------
+	bool ConvexPartition_HM()
 	{
-		if (InputPolygon.Points.Size() < 3)
+		int NumVertices = InputPolygons.GetPolygonPointCount(0);
+		if (NumVertices < 3)
 			return False;
-		Array<TPolygon> Triangles;
 		int I11, I12, I21 = 0, I22 = 0, I13, I23;
 		// Check if the poly is already convex.
 		int NumReflex = 0;
-		for (I11 = 0; I11 < InputPolygon.Points.Size(); I11++)
+		for (I11 = 0; I11 < InputPolygons.GetPolygonPointCount(0); I11++)
 		{
-			if (I11 == 0)
-				I12 = InputPolygon.Points.Size() - 1;
-			else
-				I12 = I11 - 1;
-			if (I11 == (InputPolygon.Points.Size() - 1))
-				I13 = 0;
-			else
-				I13 = I11 + 1;
-			if (IsReflexPoint(InputPolygon.Points[I12], InputPolygon.Points[I11], InputPolygon.Points[I13]))
+			I12 = (I11 + InputPolygons.GetPolygonPointCount(0) - 1) % InputPolygons.GetPolygonPointCount(0);
+			I13 = (I11 + 1) % InputPolygons.GetPolygonPointCount(0);
+			if (IsReflexPoint(InputPolygons.GetPolygonPoint(0, I12), InputPolygons.GetPolygonPoint(0, I11), InputPolygons.GetPolygonPoint(0, I13)))
 			{
 				NumReflex = 1;
 				break;
@@ -1020,34 +1115,36 @@ class TNavMeshBuilder: TCustomNavMesh
 		}
 		if (NumReflex == 0)
 		{
-			OutputPolygons.Push(InputPolygon);
+			int CurrentPolygon = OutputPolygons.NewPolygon(InputPolygons.GetPolygonPoint(0, 0));
+			for (int I = 1; I < InputPolygons.GetPolygonPointCount(0); I++)
+				OutputPolygons.NewPoint(CurrentPolygon, InputPolygons.GetPolygonPoint(0, I));
 			return True;
 		}
-		if (!Triangulate_EC(InputPolygon, Triangles))
+		if (!Triangulate_EC())
 			return False;
 		int TriangleIndex1 = 0, TriangleIndex2;
-		while (TriangleIndex1 < Triangles.Size())
+		while (TriangleIndex1 < Triangles.GetPolygonCount())
 		{
-			TPolygon Polygon1 = Triangles[TriangleIndex1];
-			TPolygon Polygon2 = null;
-			for (I11 = 0; I11 < Polygon1.Points.Size(); I11++)
+			int Polygon1 = TriangleIndex1;
+			int Polygon2;
+			for (I11 = 0; I11 < Triangles.GetPolygonPointCount(Polygon1); I11++)
 			{
-				int D1 = Polygon1.Points[I11];
-				I12 = (I11 + 1) % (Polygon1.Points.Size());
-				int D2 = Polygon1.Points[I12];
+				int D1 = Triangles.GetPolygonPoint(Polygon1, I11);
+				I12 = (I11 + 1) % (Triangles.GetPolygonPointCount(Polygon1));
+				int D2 = Triangles.GetPolygonPoint(Polygon1, I12);
 				bool IsDiagonal = False;
 				TriangleIndex2 = TriangleIndex1;
-				while (TriangleIndex2 < Triangles.Size())
+				while (TriangleIndex2 < Triangles.GetPolygonCount())
 				{
 					if (TriangleIndex1 != TriangleIndex2)
 					{
-						Polygon2 = Triangles[TriangleIndex2];
-						for (I21 = 0; I21 < Polygon2.Points.Size(); I21++)
+						Polygon2 = TriangleIndex2;
+						for (I21 = 0; I21 < Triangles.GetPolygonPointCount(Polygon2); I21++)
 						{
-							if ((GetX(D2) != GetX(Polygon2.Points[I21])) || (GetY(D2) != GetY(Polygon2.Points[I21])))
+							if ((GetX(D2) != GetX(Triangles.GetPolygonPoint(Polygon2, I21))) || (GetY(D2) != GetY(Triangles.GetPolygonPoint(Polygon2, I21))))
 								continue;
-							I22 = (I21 + 1) % (Polygon2.Points.Size());
-							if ((GetX(D1) != GetX(Polygon2.Points[I22])) || (GetY(D1) != GetY(Polygon2.Points[I22])))
+							I22 = (I21 + 1) % (Triangles.GetPolygonPointCount(Polygon2));
+							if ((GetX(D1) != GetX(Triangles.GetPolygonPoint(Polygon2, I22))) || (GetY(D1) != GetY(Triangles.GetPolygonPoint(Polygon2, I22))))
 								continue;
 							IsDiagonal = True;
 							break;
@@ -1059,58 +1156,76 @@ class TNavMeshBuilder: TCustomNavMesh
 				}
 				if (!IsDiagonal)
 					continue;
-				int P2 = Polygon1.Points[I11];
+				int P2 = Triangles.GetPolygonPoint(Polygon1, I11);
 				if (I11 == 0)
-					I13 = Polygon1.Points.Size() - 1;
+					I13 = Triangles.GetPolygonPointCount(Polygon1) - 1;
 				else
 					I13 = I11 - 1;
-				int P1 = Polygon1.Points[I13];
-				if (I22 == (Polygon2.Points.Size() - 1))
+				int P1 = Triangles.GetPolygonPoint(Polygon1, I13);
+				if (I22 == (Triangles.GetPolygonPointCount(Polygon2) - 1))
 					I23 = 0;
 				else
 					I23 = I22 + 1;
-				int P3 = Polygon2.Points[I23];
+				int P3 = Triangles.GetPolygonPoint(Polygon2, I23);
 				if (!IsConvexPoint(P1, P2, P3))
 					continue;
-				P2 = Polygon1.Points[I12];
-				if (I12 == (Polygon1.Points.Size() - 1))
+				P2 = Triangles.GetPolygonPoint(Polygon1, I12);
+				if (I12 == (Triangles.GetPolygonPointCount(Polygon1) - 1))
 					I13 = 0;
 				else
 					I13 = I12 + 1;
-				P3 = Polygon1.Points[I13];
+				P3 = Triangles.GetPolygonPoint(Polygon1, I13);
 				if (I21 == 0)
-					I23 = Polygon2.Points.Size() - 1;
+					I23 = Triangles.GetPolygonPointCount(Polygon2) - 1;
 				else
 					I23 = I21 - 1;
-				P1 = Polygon2.Points[I23];
+				P1 = Triangles.GetPolygonPoint(Polygon2, I23);
 				if (!IsConvexPoint(P1, P2, P3))
 					continue;
-				TPolygon NewPolygon = TPolygon.Create();
-				for (int J = I12; J != I11; J = (J + 1) % (Polygon1.Points.Size()))
-					NewPolygon.Points.Push(Polygon1.Points[J]);
-				for (int J = I22; J != I21; J = (J + 1) % (Polygon2.Points.Size()))
-					NewPolygon.Points.Push(Polygon2.Points[J]);
-				Triangles.Delete(TriangleIndex2);
-				Triangles[TriangleIndex1] = NewPolygon;
-				Polygon1 = NewPolygon;
+				int NewPolygonCount = 0;
+				for (int J = I12; J != I11; J = (J + 1) % (Triangles.GetPolygonPointCount(Polygon1)))
+				{
+					NewPolygons[NewPolygonCount] = Triangles.GetPolygonPoint(Polygon1, J);
+					NewPolygonCount++;
+				}
+				for (int J = I22; J != I21; J = (J + 1) % (Triangles.GetPolygonPointCount(Polygon2)))
+				{
+					NewPolygons[NewPolygonCount] = Triangles.GetPolygonPoint(Polygon2, J);
+					NewPolygonCount++;
+				}
+				Triangles.DeletePolygon(TriangleIndex2);
+				for (int J = 0; J < NewPolygonCount; J++)
+					Triangles.UpdatePoint(TriangleIndex1, J, NewPolygons[J]);
 				I11 = -1;
 				continue;
 			}
 			TriangleIndex1++;
 		}
-		OutputPolygons.Append(Triangles);
+		for (int I = 0; I < Triangles.GetPolygonCount(); I++)
+		{
+			int CurrentPolygon = OutputPolygons.NewPolygon(Triangles.GetPolygonPoint(I, 0));
+			for (int J = 1; J < Triangles.GetPolygonPointCount(I); J++)
+				OutputPolygons.NewPoint(CurrentPolygon, Triangles.GetPolygonPoint(I, J));
+		}
 		return True;
 	}
-	bool PointInsidePolygon(TPolygon Polygon, int Point)
+// -----------------------------------------------------------------------------
+// PointInsidePolygon
+// -----------------------------------------------------------------------------
+// Function PointInsidePolygon checks if a point is contained in a polygon.
+// The polygon doesn't need to be convex.
+// -----------------------------------------------------------------------------
+	bool PointInsidePolygon(int Polygon, int Point)
 	{
-		if (Polygon.Points.Size() < 3)
+		if (SectorPolygons.GetPolygonPointCount(Polygon) < 3)
 			return False;
 		bool Result = False;
-		int P1 = Polygon.Points[0];
+		int I;
+		int P1 = SectorPolygons.GetPolygonPoint(Polygon, 0);
 		int P2;
-		for (int I = 0; I < Polygon.Points.Size(); I++)
+		for (I = 0; I < SectorPolygons.GetPolygonPointCount(Polygon); I++)
 		{
-			P2 = Polygon.Points[(I + 1) % Polygon.Points.Size()];
+			P2 = SectorPolygons.GetPolygonPoint(Polygon, (I + 1) % SectorPolygons.GetPolygonPointCount(Polygon));
 			if ((GetY(Point) > Min(GetY(P1), GetY(P2)))
 			&& (GetY(Point) <= Max(GetY(P1), GetY(P2)))
 			&& (GetX(Point) <= Max(GetX(P1), GetX(P2)))
@@ -1120,13 +1235,25 @@ class TNavMeshBuilder: TCustomNavMesh
 		}
 		return Result;
 	}
-	bool PolygonInsidePolygon(TPolygon OuterPolygon, TPolygon TestPoligon)
+// -----------------------------------------------------------------------------
+// PolygonInsidePolygon
+// -----------------------------------------------------------------------------
+// Function PolygonInsidePolygon checks if a polygon fits inside another one.
+// This function simply checks the first two point of the tested polygon
+// against the other one.
+// -----------------------------------------------------------------------------
+	bool PolygonInsidePolygon(int OuterPolygon, int TestPoligon)
 	{
-		if ((OuterPolygon.Points.Size() < 3) || (TestPoligon.Points.Size() < 3))
+		if ((SectorPolygons.GetPolygonPointCount(OuterPolygon) < 3) || (SectorPolygons.GetPolygonPointCount(TestPoligon) < 3))
 			return False;
 		else
-			return (PointInsidePolygon(OuterPolygon, TestPoligon.Points[0])) && (PointInsidePolygon(OuterPolygon, TestPoligon.Points[1]));
+			return (PointInsidePolygon(OuterPolygon, SectorPolygons.GetPolygonPoint(TestPoligon, 0))) && (PointInsidePolygon(OuterPolygon, SectorPolygons.GetPolygonPoint(TestPoligon, 1)));
 	}
+// -----------------------------------------------------------------------------
+// GetGridExtent
+// -----------------------------------------------------------------------------
+// Function GetGridExtent gets the bounding box of a line.
+// -----------------------------------------------------------------------------
 	void GetGridExtent(int X1, int Y1, int X2, int Y2, out int MinX, out int MaxX, out int MinY, out int MaxY)
 	{
 		if (X1 > X2)
@@ -1154,33 +1281,171 @@ class TNavMeshBuilder: TCustomNavMesh
 		MinY = (MinY + GridOffset) >> 8;
 		MaxY = (MaxY + GridOffset) >> 8;
 	}
+// -----------------------------------------------------------------------------
+// PreProcessMapData
+// -----------------------------------------------------------------------------
+// Function PreProcessMapData caches the map's linedef into GridLinedef.
+// -----------------------------------------------------------------------------
 	void PreProcessMapData()
 	{
-		int MinX, MaxX, MinY, MaxY;
-		for (int I = 0; I < Level.Lines.Size(); I++)
+		int MinX, MaxX, MinY, MaxY, I, X, Y;
+		for (I = 0; I < Level.Lines.Size(); I++)
 		{
 			GetGridExtent(Level.Lines[I].V1.P.X, Level.Lines[I].V1.P.Y, Level.Lines[I].V2.P.X, Level.Lines[I].V2.P.Y, MinX, MaxX, MinY, MaxY);
-			for (int Y = MinY; Y <= MaxY; Y++)
-				for (int X = MinX; X <= MaxX; X++)
+			for (Y = MinY; Y <= MaxY; Y++)
+				for (X = MinX; X <= MaxX; X++)
 					GridLinedef.AddGrid(X, Y, Level.Lines[I].Index());
 		}
 	}
-	// Function GetPolygonGroups creates the list of SectorGroup from a SECTOR.
-	const MaxStack = 128;
-	bool GetPolygonGroups(Array<int> VertexBegin, Array<int> VertexEnd, out Array<TPolygonGroup> PolygonGroups)
+// -----------------------------------------------------------------------------
+// ProcessPolygons
+// -----------------------------------------------------------------------------
+// Function ProcessPolygons decomposes "multipolygons" into convex polygons.
+// Get the polygons from InputPolygons and decomposes them into OutputPolygons.
+// -----------------------------------------------------------------------------
+	void ProcessPolygons(int MapSector)
 	{
-		Array<TPolygon> Polygons;
-		int I, J;
+		int CurrentNavMeshLine = NavMesh.LineCount;
+		int CurrentNavMeshPolygon = NavMesh.PolygonCount;
+		int I, Index, LineBegin, LineEnd, Polygon, MinX, MaxX, MinY, MaxY;
+		int PolyhedronIndex, CurrentPolygonIndex, CurrentPolygonStartLine, NextPolygonStart;
+		bool NotFound, LineIsPortal, PolygonNotFound;
+		Vertex V1, V2;
+		Line MapLinedef;
+		TNavMeshLine NavMeshLine;
+		TNavMeshPolygon NavMeshPolygon;
+		if (RemoveHoles())
+		{
+			Triangles.Clear();
+			OutputPolygons.Clear();
+			if (ConvexPartition_HM())
+			{
+				for (Polygon = 0; Polygon < OutputPolygons.GetPolygonCount(); Polygon++)
+				{
+					for (PolyhedronIndex = 0; PolyhedronIndex < PolyhedronCount; PolyhedronIndex++)
+					{
+						NavMeshPolygon = New('TNavMeshPolygon');
+						NavMeshPolygon.HeightFloor = PolyhedronFloors[PolyhedronIndex];
+						NavMeshPolygon.HeightCeiling = PolyhedronCeilings[PolyhedronIndex];
+						NavMeshPolygon.LineFirst = CurrentNavMeshLine;
+						NavMeshPolygon.LineCount = OutputPolygons.GetPolygonPointCount(Polygon);
+						NavMesh.PolygonChain.Add(MapSector, NavMesh.PolygonCount);
+						if (NavMesh.PolygonCount == NavMesh.NavMeshPolygons.Size())
+							NavMesh.NavMeshPolygons.Reserve(1024);
+						NavMesh.NavMeshPolygons[NavMesh.PolygonCount] = NavMeshPolygon;
+						NavMesh.PolygonCount++;
+						for (LineBegin = 0; LineBegin < NavMeshPolygon.LineCount; LineBegin++)
+						{
+							LineEnd = (LineBegin + 1) % OutputPolygons.GetPolygonPointCount(Polygon);
+							NavMeshLine = New('TNavMeshLine');
+							NavMeshLine.X1 = GetX(OutputPolygons.GetPolygonPoint(Polygon, LineBegin));
+							NavMeshLine.Y1 = GetY(OutputPolygons.GetPolygonPoint(Polygon, LineBegin));
+							NavMeshLine.X2 = GetX(OutputPolygons.GetPolygonPoint(Polygon, LineEnd));
+							NavMeshLine.Y2 = GetY(OutputPolygons.GetPolygonPoint(Polygon, LineEnd));
+							NavMeshLine.MapLinedef = -1;
+							NavMeshLine.Portal = -1;
+							if (NavMesh.LineCount == NavMesh.NavMeshLines.Size())
+								NavMesh.NavMeshLines.Reserve(1024);
+							NavMesh.NavMeshLines[NavMesh.LineCount] = NavMeshLine;
+							NavMesh.LineCount++;
+						}
+						GetGridExtent(NavMeshLine.X1, NavMeshLine.Y1, NavMeshLine.X2, NavMeshLine.Y2, MinX, MaxX, MinY, MaxY);
+						GridLinedef.ClearSearchResult();
+						GridLinedef.SearchGrid(MinX, MaxX, MinY, MaxY);
+						NotFound = True;
+						I = 0;
+						while ((NotFound) && (I < GridLinedef.SearchResultCount))
+						{
+							V1 = Level.Lines[GridLinedef.SearchResults[I]].V1;
+							V2 = Level.Lines[GridLinedef.SearchResults[I]].V2;
+							if (((NavMeshLine.X1 == V1.P.X) && (NavMeshLine.Y1 == V1.P.Y) && (NavMeshLine.X2 == V2.P.X) && (NavMeshLine.Y2 == V2.P.Y))
+							|| ((NavMeshLine.X1 == V2.P.X) && (NavMeshLine.Y1 == V2.P.Y) && (NavMeshLine.X2 == V1.P.X) && (NavMeshLine.Y2 == V1.P.Y)))
+								NotFound = False;
+							else
+								I++;
+						}
+						if (!NotFound)
+							NavMeshLine.MapLinedef = GridLinedef.SearchResults[I];
+						// Check for portals.
+						GridNavMeshLine.ClearSearchResult();
+						GridNavMeshLine.SearchGrid(MinX, MaxX, MinY, MaxY);
+						for (Index = 0; Index < GridNavMeshLine.SearchResultCount; Index++)
+						{
+							I = GridNavMeshLine.SearchResults[Index];
+							CurrentPolygonIndex = 0;
+							CurrentPolygonStartLine = 0;
+							PolygonNotFound = True;
+							do
+							{
+								NextPolygonStart = CurrentPolygonStartLine + NavMesh.NavMeshPolygons[CurrentPolygonIndex].LineCount;
+								if (NextPolygonStart > I)
+									PolygonNotFound = False;
+								else
+								{
+									CurrentPolygonStartLine = NextPolygonStart;
+									CurrentPolygonIndex++;
+								}
+							} while ((PolygonNotFound) && (CurrentPolygonIndex < NavMesh.PolygonCount));
+							if (((NavMeshLine.X1 == NavMesh.NavMeshLines[I].X1) && (NavMeshLine.Y1 == NavMesh.NavMeshLines[I].Y1) && (NavMeshLine.X2 == NavMesh.NavMeshLines[I].X2) && (NavMeshLine.Y2 == NavMesh.NavMeshLines[I].Y2))
+							|| ((NavMeshLine.X1 == NavMesh.NavMeshLines[I].X2) && (NavMeshLine.Y1 == NavMesh.NavMeshLines[I].Y2) && (NavMeshLine.X2 == NavMesh.NavMeshLines[I].X1) && (NavMeshLine.Y2 == NavMesh.NavMeshLines[I].Y1)))
+							{
+								LineIsPortal = True;
+								// Check if the two floor heights are too different.
+								if (Abs(NavMeshPolygon.HeightFloor - NavMesh.NavMeshPolygons[CurrentPolygonIndex].HeightFloor) > 24)
+									LineIsPortal = False;
+								// Check if there is enough vertical space between the two connecting sectors.
+								if (Min(NavMeshPolygon.HeightCeiling, NavMesh.NavMeshPolygons[CurrentPolygonIndex].HeightCeiling) - Max(NavMeshPolygon.HeightFloor, NavMesh.NavMeshPolygons[CurrentPolygonIndex].HeightFloor) < ActorHeight)
+									LineIsPortal = False;
+								if (NavMeshLine.MapLinedef >= 0)
+								{
+									// Check if the LINEDEF blocks monsters.
+									MapLinedef = Level.Lines[NavMeshLine.MapLinedef];
+									if ((MapLinedef.Flags & Line.ML_BLOCKING)
+									|| (MapLinedef.Flags & Line.ML_BLOCKMONSTERS)
+									|| (!MapLinedef.FrontSector)
+									|| (!MapLinedef.BackSector))
+										LineIsPortal = False;
+								}
+								if (LineIsPortal)
+								{
+									NavMeshLine.Portal = CurrentPolygonIndex;
+									NavMesh.NavMeshLines[I].Portal = NavMesh.PolygonCount;
+								}
+							}
+							for (int Y = MinY; Y <= MaxY; Y++)
+								for (int X = MinX; X <= MaxX; X++)
+									GridNavMeshLine.AddGrid(X, Y, NavMesh.LineCount);
+							if (NavMesh.NavMeshLines.Size() == NavMesh.LineCount)
+								NavMesh.NavMeshLines.Reserve(1024);
+							NavMesh.NavMeshLines[NavMesh.LineCount] = NavMeshLine;
+							NavMesh.LineCount++;
+						}
+						// Update the NavMesh nodes.
+						TNavMeshNode NavMeshNode = New('TNavMeshNode');
+						NavMeshNode.Initialize();
+						NavMesh.NavNodes.Push(NavMeshNode);
+					}
+				}
+			}
+		}
+	}
+// -----------------------------------------------------------------------------
+// ProcessSector
+// -----------------------------------------------------------------------------
+// Function ProcessSector decomposes a sector into "multipolygons".
+// Fills the SectorPolygons and InputPolygons objects.
+// -----------------------------------------------------------------------------
+	bool ProcessSector(int SectorNumber)
+	{
+		int I, J, K, CurrentPolygon, CurrentPoint, FirstPoint, NextPoint, OtherPoint, PreviousPoint, TestPoint;
+		int NextLine = 0, InfiniteLoopLine = -1;
+		int NextDifference, TestDifference;
+		double NextAngle, PreviousAngle, TestAngle;
 		bool NotFound, HasMoreIterations, AllPointsVisited;
-		int PointCount;
-		Array<int> Points; Points.Reserve(VertexBegin.Size() * 2);
-		int LineCount;
-		Array<int> LinesA; LinesA.Reserve(VertexBegin.Size());
-		Array<int> LinesB; LinesB.Reserve(VertexBegin.Size());
-		// Build the Points and Lines array.
+		// Fills the Points and Lines arrays.
 		PointCount = 0;
 		LineCount = 0;
-		for (I = 0; I < VertexBegin.Size(); I++)
+		for (I = 0; I < VertexCount; I++)
 		{
 			NotFound = True;
 			J = 0;
@@ -1214,41 +1479,12 @@ class TNavMeshBuilder: TCustomNavMesh
 				LinesB[LineCount] = J;
 			LineCount++;
 		}
-		// Array of point cardinality.
-		Array<int> PointCardinality; PointCardinality.Reserve(PointCount * 2);
-		// Arrays of open points and lines.
-		Array<bool> OpenPoints; OpenPoints.Reserve(PointCount);
-		Array<bool> OpenLines; OpenLines.Reserve(LineCount);
-		// Queue of points.
-		Array<int> PointQueue; PointQueue.Reserve(PointCount);
-		int PointQueueHead;
-		int PointQueueTail;
-		// Stack of meshes.
-		int StackLength = PointCount * 4;
-		Array<int> MeshStackPoints; MeshStackPoints.Reserve(MaxStack * StackLength);
-		Array<int> MeshStackCount; MeshStackCount.Reserve(MaxStack);
-		int MeshStackTOS;
-		// General purpose point index variables.
-		int CurrentPoint, FirstPoint, NextPoint, OtherPoint, PreviousPoint, TestPoint;
-		// General purpose line index variables.
-		int NextLine = 0, InfiniteLoopLine = -1;
-		// General purpose distance variables.
-		int NextDifference, TestDifference;
-		// General purpose angle variables.
-		double NextAngle, PreviousAngle, TestAngle;
-		// Outer perimeter variables.
-		Array<int> OuterPerimeterPoints; OuterPerimeterPoints.Reserve(PointCount);
-		int OuterPerimeterPointCount, OuterPerimeterPointStart;
-		// Chord variables.
-		Array<int> InnerChordPoints; InnerChordPoints.Reserve(PointCount);
-		int InnerChordPointCount, InnerChordPointLoop;
-		Array<int> OuterChordPoints; OuterChordPoints.Reserve(PointCount);
-		int OuterChordPointCount, ChordBegin, ChordEnd;
 		// Initialization.
 		for (I = 0; I < PointCount; I++)
 			OpenPoints[I] = True;
 		for (I = 0; I < LineCount; I++)
 			OpenLines[I] = True;
+		SectorPolygons.Clear();
 		// Polygon splitting loop.
 		do
 		{
@@ -1275,6 +1511,7 @@ class TNavMeshBuilder: TCustomNavMesh
 				if (PointQueueTail == 1)
 				{
 					// Search the second point.
+					NextDifference = 0;
 					NextPoint = -1;
 					for (I = 0; I < LineCount; I++)
 					{
@@ -1293,7 +1530,7 @@ class TNavMeshBuilder: TCustomNavMesh
 							}
 							else
 							{
-								if (GetY(Points[TestPoint]) < GetY(Points[NextPoint]))
+								if (TestDifference < NextDifference)
 								{
 									NextPoint = TestPoint;
 									NextDifference = TestDifference;
@@ -1368,7 +1605,7 @@ class TNavMeshBuilder: TCustomNavMesh
 						MeshStackTOS = 0;
 						MeshStackCount[MeshStackTOS] = OuterPerimeterPointCount;
 						for (I = 0; I < OuterPerimeterPointCount; I++)
-							MeshStackPoints[MeshStackTOS * StackLength + I] = OuterPerimeterPoints[I];
+							MeshStackPoints[MeshStackTos * StackLength + I] = OuterPerimeterPoints[I];
 						while (MeshStackTOS >= 0)
 						{
 							// Calculate the point cardinality.
@@ -1376,9 +1613,9 @@ class TNavMeshBuilder: TCustomNavMesh
 								PointCardinality[I] = 2; // The default previous and next lines attached to each point.
 							for (I = 0; I < MeshStackCount[MeshStackTOS]; I++)
 							{
-								CurrentPoint = MeshStackPoints[MeshStackTOS * StackLength + I];
-								NextPoint = MeshStackPoints[MeshStackTOS * StackLength + (I + 1) % MeshStackCount[MeshStackTOS]];
-								PreviousPoint = MeshStackPoints[MeshStackTOS * StackLength + (I + MeshStackCount[MeshStackTOS] - 1) % MeshStackCount[MeshStackTOS]];
+								CurrentPoint = MeshStackPoints[MeshStackTos * StackLength + I];
+								NextPoint = MeshStackPoints[MeshStackTos * StackLength + (I + 1) % MeshStackCount[MeshStackTOS]];
+								PreviousPoint = MeshStackPoints[MeshStackTos * StackLength + (I + MeshStackCount[MeshStackTOS] - 1) % MeshStackCount[MeshStackTOS]];
 								for (J = 0; J < LineCount; J++)
 								{
 									if (((LinesA[J] == CurrentPoint) && (LinesB[J] != NextPoint) && (LinesB[J] != PreviousPoint)) || ((LinesB[J] == CurrentPoint) && (LinesA[J] != NextPoint) && (LinesA[J] != PreviousPoint)))
@@ -1399,7 +1636,7 @@ class TNavMeshBuilder: TCustomNavMesh
 							{
 								if (PointCardinality[I] > 2)
 								{
-									TestPoint = MeshStackPoints[MeshStackTOS * StackLength + I];
+									TestPoint = MeshStackPoints[MeshStackTos * StackLength + I];
 									if (FirstPoint < 0)
 									{
 										FirstPoint = TestPoint;
@@ -1424,12 +1661,12 @@ class TNavMeshBuilder: TCustomNavMesh
 										NotFound = True;
 										I = 0;
 										while ((NotFound) && (I < MeshStackCount[MeshStackTOS]))
-											if (MeshStackPoints[MeshStackTOS * StackLength + I] == FirstPoint)
+											if (MeshStackPoints[MeshStackTos * StackLength + I] == FirstPoint)
 												NotFound = False;
 											else
 												I++;
-										OtherPoint = MeshStackPoints[MeshStackTOS * StackLength + (I + 1) % MeshStackCount[MeshStackTOS]];
-										PreviousPoint = MeshStackPoints[MeshStackTOS * StackLength + (I + MeshStackCount[MeshStackTOS] - 1) % MeshStackCount[MeshStackTOS]];
+										OtherPoint = MeshStackPoints[MeshStackTos * StackLength + (I + 1) % MeshStackCount[MeshStackTOS]];
+										PreviousPoint = MeshStackPoints[MeshStackTos * StackLength + (I + MeshStackCount[MeshStackTOS] - 1) % MeshStackCount[MeshStackTOS]];
 										PreviousAngle = Atan2(GetY(Points[CurrentPoint]) - GetY(Points[PreviousPoint]), GetX(Points[CurrentPoint]) - GetX(Points[PreviousPoint]));
 										NextAngle = Atan2(GetY(Points[OtherPoint]) - GetY(Points[CurrentPoint]), GetX(Points[OtherPoint]) - GetX(Points[CurrentPoint]));
 										NextPoint = -1;
@@ -1511,7 +1748,7 @@ class TNavMeshBuilder: TCustomNavMesh
 										NotFound = True;
 										I = 0;
 										while ((NotFound) && (I < MeshStackCount[MeshStackTOS]))
-											if (MeshStackPoints[MeshStackTOS * StackLength + I] == NextPoint)
+											if (MeshStackPoints[MeshStackTos * StackLength + I] == NextPoint)
 												NotFound = False;
 											else
 												I++;
@@ -1565,59 +1802,59 @@ class TNavMeshBuilder: TCustomNavMesh
 									else
 									{
 										ChordBegin = 0;
-										while (MeshStackPoints[MeshStackTOS * StackLength + ChordBegin] != InnerChordPoints[0])
+										while (MeshStackPoints[MeshStackTos * StackLength + ChordBegin] != InnerChordPoints[0])
 											ChordBegin++;
-										PreviousPoint = MeshStackPoints[MeshStackTOS * StackLength + (ChordBegin + MeshStackCount[MeshStackTOS] - 1) % MeshStackCount[MeshStackTOS]];
-										ChordEnd = (MeshStackCount[MeshStackTOS] - 1);
-										while (MeshStackPoints[MeshStackTOS * StackLength + ChordEnd] != InnerChordPoints[InnerChordPointCount - 1])
+										PreviousPoint = MeshStackPoints[MeshStackTos * StackLength + (ChordBegin + MeshStackCount[MeshStackTOS] - 1) % MeshStackCount[MeshStackTOS]];
+										ChordEnd = MeshStackCount[MeshStackTOS] - 1;
+										while (MeshStackPoints[MeshStackTos * StackLength + ChordEnd] != InnerChordPoints[InnerChordPointCount - 1])
 											ChordEnd--;
-										NextPoint = MeshStackPoints[MeshStackTOS * StackLength + (ChordEnd + 1) % MeshStackCount[MeshStackTOS]];
-										OuterChordPointCount = (ChordEnd - ChordBegin + 1);
+										NextPoint = MeshStackPoints[MeshStackTos * StackLength + (ChordEnd + 1) % MeshStackCount[MeshStackTOS]];
+										OuterChordPointCount = ChordEnd - ChordBegin + 1;
 										if (OuterChordPointCount < 0)
 										{
-											OuterChordPointCount = (OuterChordPointCount + MeshStackCount[MeshStackTOS]);
+											OuterChordPointCount = OuterChordPointCount + MeshStackCount[MeshStackTOS];
 											for (I = ChordBegin; I <= ChordEnd + MeshStackCount[MeshStackTOS]; I++)
-												OuterChordPoints[I - ChordBegin] = MeshStackPoints[MeshStackTOS * StackLength + I % MeshStackCount[MeshStackTOS]];
+												OuterChordPoints[I - ChordBegin] = MeshStackPoints[MeshStackTos * StackLength + I % MeshStackCount[MeshStackTOS]];
 										}
 										else
 										{
 											for (I = ChordBegin; I <= ChordEnd; I++)
-												OuterChordPoints[I - ChordBegin] = MeshStackPoints[MeshStackTOS * StackLength + I];
+												OuterChordPoints[I - ChordBegin] = MeshStackPoints[MeshStackTos * StackLength + I];
 										}
 										if (InnerChordPointCount > OuterChordPointCount)
 										{
-											MeshStackCount[MeshStackTOS] = (MeshStackCount[MeshStackTOS] - OuterChordPointCount + InnerChordPointCount);
-											for (I = (MeshStackCount[MeshStackTOS] - 1); I >= ChordEnd; I--)
-												MeshStackPoints[MeshStackTOS * StackLength + I + InnerChordPointCount - OuterChordPointCount] = MeshStackPoints[MeshStackTOS * StackLength + I];
+											MeshStackCount[MeshStackTOS] = MeshStackCount[MeshStackTOS] - OuterChordPointCount + InnerChordPointCount;
+											for (I = MeshStackCount[MeshStackTOS] - 1; I >= ChordEnd; I--)
+												MeshStackPoints[MeshStackTos * StackLength + I + InnerChordPointCount - OuterChordPointCount] = MeshStackPoints[MeshStackTos * StackLength + I];
 										}
 										else if (InnerChordPointCount < OuterChordPointCount)
 										{
-											MeshStackCount[MeshStackTOS] = (MeshStackCount[MeshStackTOS] - OuterChordPointCount + InnerChordPointCount);
+											MeshStackCount[MeshStackTOS] = MeshStackCount[MeshStackTOS] - OuterChordPointCount + InnerChordPointCount;
 											if (ChordBegin > ChordEnd)
 												for (I = ChordEnd; I <= ChordBegin; I++)
-													MeshStackPoints[MeshStackTOS * StackLength + I - ChordEnd] = MeshStackPoints[MeshStackTOS * StackLength + I];
+													MeshStackPoints[MeshStackTos * StackLength + I - ChordEnd] = MeshStackPoints[MeshStackTos * StackLength + I];
 											else
-												for (I = (ChordBegin + 1); I < MeshStackCount[MeshStackTOS]; I++)
-													MeshStackPoints[MeshStackTOS * StackLength + I] = MeshStackPoints[MeshStackTOS * StackLength + I + OuterChordPointCount - InnerChordPointCount];
+												for (I = ChordBegin + 1; I < MeshStackCount[MeshStackTOS]; I++)
+													MeshStackPoints[MeshStackTos * StackLength + I] = MeshStackPoints[MeshStackTos * StackLength + I + OuterChordPointCount - InnerChordPointCount];
 										}
 										for (I = 1; I < InnerChordPointCount - 1; I++)
-											MeshStackPoints[MeshStackTOS * StackLength + (ChordBegin + I) % MeshStackCount[MeshStackTOS]] = InnerChordPoints[I];
+											MeshStackPoints[MeshStackTos * StackLength + (ChordBegin + I - 1) % MeshStackCount[MeshStackTOS]] = InnerChordPoints[I];
 										MeshStackTOS++;
-										MeshStackCount[MeshStackTOS] = (InnerChordPointCount + OuterChordPointCount - 2);
+										MeshStackCount[MeshStackTOS] = InnerChordPointCount + OuterChordPointCount - 2;
 										TestAngle = Atan2(GetY(Points[NextPoint]) - GetY(Points[InnerChordPoints[InnerChordPointCount - 1]]), GetX(Points[NextPoint]) - GetX(Points[InnerChordPoints[InnerChordPointCount - 1]]));
 										if (TestAngle < 0)
 										{
 											for (I = 0; I < OuterChordPointCount; I++)
-												MeshStackPoints[MeshStackTOS * StackLength + I] = OuterChordPoints[I];
+												MeshStackPoints[MeshStackTos * StackLength + I] = OuterChordPoints[I];
 											for (I = 1; I < InnerChordPointCount - 1; I++)
-												MeshStackPoints[MeshStackTOS * StackLength + OuterChordPointCount + I - 1] = InnerChordPoints[InnerChordPointCount - I - 1];
+												MeshStackPoints[MeshStackTos * StackLength + OuterChordPointCount + I - 1] = InnerChordPoints[InnerChordPointCount - I - 1];
 										}
 										else
 										{
 											for (I = 0; I < InnerChordPointCount; I++)
-												MeshStackPoints[MeshStackTOS * StackLength + I] = InnerChordPoints[InnerChordPointCount - I - 1];
+												MeshStackPoints[MeshStackTos * StackLength + I] = InnerChordPoints[InnerChordPointCount - I - 1];
 											for (I = 1; I < OuterChordPointCount - 1; I++)
-												MeshStackPoints[MeshStackTOS * StackLength + InnerChordPointCount + I - 1] = OuterChordPoints[I];
+												MeshStackPoints[MeshStackTos * StackLength + InnerChordPointCount + I - 1] = OuterChordPoints[I];
 										}
 									}
 								}
@@ -1628,11 +1865,9 @@ class TNavMeshBuilder: TCustomNavMesh
 							}
 							else
 							{
-								TPolygon Polygon = TPolygon.Create();
-								for (I = 0; I < MeshStackCount[MeshStackTOS]; I++)
-									Polygon.Points.Push(Points[MeshStackPoints[MeshStackTOS * StackLength + I]]);
-								Polygon.SetHole(False);
-								Polygons.Push(Polygon);
+								CurrentPolygon = SectorPolygons.NewPolygon(Points[MeshStackPoints[MeshStackTos * StackLength + 0]]);
+								for (I = 1; I < MeshStackCount[MeshStackTOS]; I++)
+									SectorPolygons.NewPoint(CurrentPolygon, Points[MeshStackPoints[MeshStackTos * StackLength + I]]);;
 								MeshStackTOS--;
 							}
 						}
@@ -1681,298 +1916,156 @@ class TNavMeshBuilder: TCustomNavMesh
 					break;
 				}
 		} while (!AllPointsVisited);
-		if (Polygons.Size() == 0)
+		if (SectorPolygons.GetPolygonCount() == 0)
 			return False;
-		if (Polygons.Size() == 1)
+		InputPolygons.Clear();
+		if (SectorPolygons.GetPolygonCount() == 1)
 		{
 			// Only one closed region.
-			TPolygonGroup PolygonGroup = TPolygonGroup.Create(Polygons[0]);
-			PolygonGroups.Push(PolygonGroup);
+			CurrentPolygon = InputPolygons.NewPolygon(SectorPolygons.GetPolygonPoint(0, 0));
+			for (K = 1; K < SectorPolygons.GetPolygonPointCount(0); K++)
+				InputPolygons.NewPoint(CurrentPolygon, SectorPolygons.GetPolygonPoint(0, K));
+			InputPolygons.SetHole(CurrentPolygon, False);
+			ProcessPolygons(SectorNumber);
 		}
 		else
 		{
 			// Multiple closed regions: check the holes and nested regions.
-			Array<int> PolygonDepthLevel; PolygonDepthLevel.Reserve(Polygons.Size());
 			int MaxDepthLevel = 0;
-			for (I = 0; I < Polygons.Size(); I++)
+			for (I = 0; I < SectorPolygons.GetPolygonCount(); I++)
 				PolygonDepthLevel[I] = 0;
-			for (I = 0; I < Polygons.Size(); I++)
-				for ( J = 0; J < Polygons.Size(); J++)
-					if (I != J)
-						if (PolygonInsidePolygon(Polygons[I], Polygons[J]))
-						{
-							PolygonDepthLevel[J]++;
-							if (PolygonDepthLevel[J] > MaxDepthLevel)
-								MaxDepthLevel = PolygonDepthLevel[J];
-						}
+			for (I = 0; I < SectorPolygons.GetPolygonCount(); I++)
+				for (J = 0; J < SectorPolygons.GetPolygonCount(); J++)
+					if ((I != J) && (PolygonInsidePolygon(I, J)))
+					{
+						PolygonDepthLevel[J]++;
+						if (PolygonDepthLevel[J] > MaxDepthLevel)
+							MaxDepthLevel = PolygonDepthLevel[J];
+					}
 			for (int DepthLevel = 0; DepthLevel <= MaxDepthLevel; DepthLevel += 2)
-				for (I = 0; I < Polygons.Size(); I++)
+				for (I = 0; I < SectorPolygons.GetPolygonCount(); I++)
 					if (PolygonDepthLevel[I] == DepthLevel)
 					{
-						TPolygonGroup PolygonGroup = TPolygonGroup.Create(Polygons[I]);
-						for (J = 0; J < Polygons.Size(); J++)
-							if ((I != J) && (PolygonInsidePolygon(Polygons[I], Polygons[J])))
+						InputPolygons.Clear();
+						CurrentPolygon = InputPolygons.NewPolygon(SectorPolygons.GetPolygonPoint(I, 0));
+						for (K = 1; K < SectorPolygons.GetPolygonPointCount(I); K++)
+							InputPolygons.NewPoint(CurrentPolygon, SectorPolygons.GetPolygonPoint(I, K));
+						InputPolygons.SetHole(CurrentPolygon, False);
+						for (J = 0; J < SectorPolygons.GetPolygonCount(); J++)
+						{
+							if ((PolygonDepthLevel[J] == (PolygonDepthLevel[I] + 1)) && (PolygonInsidePolygon(I, J)))
 							{
-								Polygons[J].SetHole(True);
-								PolygonGroup.Holes.Push(Polygons[J]);
+								CurrentPolygon = InputPolygons.NewPolygon(SectorPolygons.GetPolygonPoint(J, 0));
+								for (K = 1; K < SectorPolygons.GetPolygonPointCount(J); K++)
+									InputPolygons.NewPoint(CurrentPolygon, SectorPolygons.GetPolygonPoint(J, K));
+								InputPolygons.SetHole(CurrentPolygon, True);
 							}
-						PolygonGroups.Push(PolygonGroup);
+						}
+						ProcessPolygons(SectorNumber);
 					}
 		}
 		return True;
 	}
-	void ProcessPolygonMesh(TNavMeshPolygon Polygon, in Array<TNavMeshLine> PolygonLines, int SectorNumber)
+// -----------------------------------------------------------------------------
+// ProcessMapData
+// -----------------------------------------------------------------------------
+// Function ProcessMapData processes one map sector at a time.
+// Fills PlaneCeilings and PlaneFloors up to MaxPlanes.
+// Fills PolyhedronCeilings and PolyhedronFloors accordingly to the geometry.
+// Fills VertexBegin and VertexEnd up to MaxVertexes vertices, accordingly
+// to the line geometry and sides (front: V1 -> V2, back: V2 -> V1).
+// -----------------------------------------------------------------------------
+	void ProcessMapData(int SectorNumber)
 	{
-		// Check if there is enough vertical space.
-		if ((Polygon.HeightCeiling - Polygon.HeightFloor) < ActorHeight)
-			return;
-		// Check for portals.
-		int MinX, MaxX, MinY, MaxY;
-		TNavMeshLine NavMeshLine;
-		for (int LineIndex = 0; LineIndex < PolygonLines.Size(); LineIndex++)
-		{
-			NavMeshLine = PolygonLines[LineIndex];
-			// Search for the map LINEDEF, using the cached grid.
-			GetGridExtent(NavMeshLine.X1, NavMeshLine.Y1, NavMeshLine.X2, NavMeshLine.Y2, MinX, MaxX, MinY, MaxY);
-			GridLinedef.ClearSearchResult();
-			GridLinedef.SearchGrid(MinX, MaxX, MinY, MaxY);
-			bool NotFound = True;
-			int MapLinedefIndex = 0;
-			while ((NotFound) && (MapLinedefIndex < GridLinedef.SearchResultCount))
-			{
-				Vertex V1 = Level.Lines[GridLinedef.SearchResults[MapLinedefIndex]].V1;
-				Vertex V2 = Level.Lines[GridLinedef.SearchResults[MapLinedefIndex]].V2;
-				if (((NavMeshLine.X1 == V1.P.X) && (NavMeshLine.Y1 == V1.P.Y) && (NavMeshLine.X2 == V2.P.X) && (NavMeshLine.Y2 == V2.P.Y))
-				|| ((NavMeshLine.X1 == V2.P.X) && (NavMeshLine.Y1 == V2.P.Y) && (NavMeshLine.X2 == V1.P.X) && (NavMeshLine.Y2 == V1.P.Y)))
-					NotFound = False;
-				else
-					MapLinedefIndex++;
-			}
-			if (NotFound)
-				MapLinedefIndex = -1;
-			else
-				MapLinedefIndex = GridLinedef.SearchResults[MapLinedefIndex];
-			NavMeshLine.MapLinedef = MapLinedefIndex;
-			// Check for portals.
-			GridNavMeshLine.ClearSearchResult();
-			GridNavMeshLine.SearchGrid(MinX, MaxX, MinY, MaxY);
-			for (int Index = 0; Index < GridNavMeshLine.SearchResultCount; Index++)
-			{
-				int I = GridNavMeshLine.SearchResults[Index];
-				int CurrentPolygonIndex = 0;
-				int CurrentPolygonStartLine = 0;
-				bool PolygonNotFound = True;
-				do
-				{
-					int NextPolygonStart = CurrentPolygonStartLine + NavMesh.NavMeshPolygons[CurrentPolygonIndex].LineCount;
-					if (NextPolygonStart > I)
-						PolygonNotFound = False;
-					else
-					{
-						CurrentPolygonStartLine = NextPolygonStart;
-						CurrentPolygonIndex++;
-					}
-				} while ((PolygonNotFound) && (CurrentPolygonIndex < NavMesh.PolygonCount));
-				if (((NavMeshLine.X1 == NavMesh.NavMeshLines[I].X1) && (NavMeshLine.Y1 == NavMesh.NavMeshLines[I].Y1) && (NavMeshLine.X2 == NavMesh.NavMeshLines[I].X2) && (NavMeshLine.Y2 == NavMesh.NavMeshLines[I].Y2))
-				|| ((NavMeshLine.X1 == NavMesh.NavMeshLines[I].X2) && (NavMeshLine.Y1 == NavMesh.NavMeshLines[I].Y2) && (NavMeshLine.X2 == NavMesh.NavMeshLines[I].X1) && (NavMeshLine.Y2 == NavMesh.NavMeshLines[I].Y1)))
-				{
-					bool LineIsPortal = True;
-					// If the line is generated from the splitting of the SECTOR, then check for 3D floors, else check further.
-					if (MapLinedefIndex >= 0)
-					{
-						// Check if the LINEDEF blocks monsters.
-						Line MapLinedef = Level.Lines[MapLinedefIndex];
-						if ((MapLinedef.Flags & Line.ML_BLOCKING)
-						|| (MapLinedef.Flags & Line.ML_BLOCKMONSTERS)
-						|| (!MapLinedef.FrontSector)
-						|| (!MapLinedef.BackSector))
-							LineIsPortal = False;
-						// Check if the two floor heights are too different.
-						int HeightFloorDifference = Abs(Polygon.HeightFloor - NavMesh.NavMeshPolygons[CurrentPolygonIndex].HeightFloor);
-						if (HeightFloorDifference > 24)
-							LineIsPortal = False;
-						// Check if there is enough vertical space between the two connecting sectors.
-						int VerticalSpace = Min(Polygon.HeightCeiling, NavMesh.NavMeshPolygons[CurrentPolygonIndex].HeightCeiling) - Max(Polygon.HeightFloor, NavMesh.NavMeshPolygons[CurrentPolygonIndex].HeightFloor);
-						if (VerticalSpace < ActorHeight)
-							LineIsPortal = False;
-					}
-					else
-					{
-						// Check if the two floor heights are too different.
-						int HeightFloorDifference = Abs(Polygon.HeightFloor - NavMesh.NavMeshPolygons[CurrentPolygonIndex].HeightFloor);
-						if (HeightFloorDifference > 24)
-							LineIsPortal = False;
-						// Check if there is enough vertical space between the two connecting sectors.
-						int VerticalSpace = Min(Polygon.HeightCeiling, NavMesh.NavMeshPolygons[CurrentPolygonIndex].HeightCeiling) - Max(Polygon.HeightFloor, NavMesh.NavMeshPolygons[CurrentPolygonIndex].HeightFloor);
-						if (VerticalSpace < ActorHeight)
-							LineIsPortal = False;
-					}
-					if (LineIsPortal)
-					{
-						NavMeshLine.Portal = CurrentPolygonIndex;
-						NavMesh.NavMeshLines[I].Portal = NavMesh.PolygonCount;
-					}
-				}
-			}
-		}
-		// Update the "FAT-like" arrays and NavMesh nodes.
-		NavMesh.PolygonChain.Add(SectorNumber, NavMesh.PolygonCount);
-		TNavMeshNode NavMeshNode = New('TNavMeshNode');
-		NavMeshNode.Initialize();
-		NavMesh.NavNodes.Push(NavMeshNode);
-		// Add the polygon.
-		Polygon.LineFirst = NavMesh.LineCount;
-		Polygon.LineCount = PolygonLines.Size();
-		if (NavMesh.NavMeshPolygons.Size() == NavMesh.PolygonCount)
-			NavMesh.NavMeshPolygons.Reserve(1024);
-		NavMesh.NavMeshPolygons[NavMesh.PolygonCount] = Polygon;
-		NavMesh.PolygonCount++;
-		// Add the lines.
-		for (int Index = 0; Index < PolygonLines.Size(); Index++)
-		{
-			TNavMeshLine NavMeshLine = PolygonLines[Index];
-			GetGridExtent(NavMeshLine.X1, NavMeshLine.Y1, NavMeshLine.X2, NavMeshLine.Y2, MinX, MaxX, MinY, MaxY);
-			for (int Y = MinY; Y <= MaxY; Y++)
-				for (int X = MinX; X <= MaxX; X++)
-					GridNavMeshLine.AddGrid(X, Y, NavMesh.LineCount);
-			if (NavMesh.NavMeshLines.Size() == NavMesh.LineCount)
-				NavMesh.NavMeshLines.Reserve(1024);
-			NavMesh.NavMeshLines[NavMesh.LineCount] = NavMeshLine;
-			NavMesh.LineCount++;
-		}
-	}
-	void ProcessPolygons(Array<TPolygon> Polygons, int SectorNumber)
-	{
-		int NumberOfPlanes = Level.Sectors[SectorNumber].Get3DFloorCount();
+		int BackSector, FrontSector, HeightCeiling, HeightFloor, StartFloor;
+		int I, J, Temp;
 		Vector2 TestPoint;
-		TestPoint.X = (GetX(Polygons[0].Points[0]) + GetX(Polygons[0].Points[1])) / 2;
-		TestPoint.Y = (GetY(Polygons[0].Points[0]) + GetY(Polygons[0].Points[1])) / 2;
-		int HeightFloor = Level.Sectors[SectorNumber].FloorPlane.ZatPoint(TestPoint);
-		int HeightCeiling = Level.Sectors[SectorNumber].CeilingPlane.ZatPoint(TestPoint);
-		Array<int> FloorPlanes;
-		Array<int> CeilingPlanes;
-		for (int I = 0; I < NumberOfPlanes; I++)
-		{
-			F3DFloor FF = Level.Sectors[SectorNumber].Get3DFloor(I);
-			if (!(FF.Flags & F3DFloor.FF_EXISTS)) // Yes, this is actually needed!
-				continue; // Do no remove these lines!
-			FloorPlanes.Push(FF.Bottom.ZatPoint(TestPoint));
-			CeilingPlanes.Push(FF.Top.ZatPoint(TestPoint));
-		}
-		for (int I = 0; I < NumberOfPlanes - 1; I++)
-			for (int J = I + 1; J < NumberOfPlanes; J++)
-				if (FloorPlanes[I] > FloorPlanes[J])
-				{
-					int Tmp = FloorPlanes[I];
-					FloorPlanes[I] = FloorPlanes[J];
-					FloorPlanes[J] = Tmp;
-					Tmp = CeilingPlanes[I];
-					CeilingPlanes[I] = CeilingPlanes[J];
-					CeilingPlanes[J] = Tmp;
-				}
-		Array<TNavMeshLine> Lines;
-		TNavMeshPolygon NavMeshPolygon;
-		TNavMeshLine NavMeshLine;
-		for (int PolygonIndex = 0; PolygonIndex < Polygons.Size(); PolygonIndex++)
-		{
-			NavMeshPolygon = New('TNavMeshPolygon');
-			NavMeshPolygon.MapSector = SectorNumber;
-			Lines.Clear();
-			for (int I = 0; I < Polygons[PolygonIndex].Points.Size(); I++)
-			{
-				int J = (I + 1) % Polygons[PolygonIndex].Points.Size();
-				NavMeshLine = New('TNavMeshLine');
-				NavMeshLine.X1 = GetX(Polygons[PolygonIndex].Points[I]);
-				NavMeshLine.Y1 = GetY(Polygons[PolygonIndex].Points[I]);
-				NavMeshLine.X2 = GetX(Polygons[PolygonIndex].Points[J]);
-				NavMeshLine.Y2 = GetY(Polygons[PolygonIndex].Points[J]);
-				Lines.Push(NavMeshLine);
-			}
-			if (NumberOfPlanes == 0)
-			{
-				NavMeshPolygon.HeightFloor = HeightFloor;
-				NavMeshPolygon.HeightCeiling = HeightCeiling;
-				ProcessPolygonMesh(NavMeshPolygon, Lines, SectorNumber);
-			}
-			else
-			{
-				NavMeshPolygon.HeightFloor = HeightFloor;
-				for (int Plane = 0; Plane < FloorPlanes.Size(); Plane++)
-				{
-					NavMeshPolygon.HeightCeiling = FloorPlanes[Plane];
-					ProcessPolygonMesh(NavMeshPolygon, Lines, SectorNumber);
-					NavMeshPolygon = New('TNavMeshPolygon');
-					NavMeshPolygon.MapSector = SectorNumber;
-					Lines.Clear();
-					for (int I = 0; I < Polygons[PolygonIndex].Points.Size(); I++)
-					{
-						int J = (I + 1) % Polygons[PolygonIndex].Points.Size();
-						NavMeshLine = New('TNavMeshLine');
-						NavMeshLine.X1 = GetX(Polygons[PolygonIndex].Points[I]);
-						NavMeshLine.Y1 = GetY(Polygons[PolygonIndex].Points[I]);
-						NavMeshLine.X2 = GetX(Polygons[PolygonIndex].Points[J]);
-						NavMeshLine.Y2 = GetY(Polygons[PolygonIndex].Points[J]);
-						Lines.Push(NavMeshLine);
-					}
-					NavMeshPolygon.HeightFloor = CeilingPlanes[Plane];
-				}
-				NavMeshPolygon.HeightCeiling = HeightCeiling;
-				ProcessPolygonMesh(NavMeshPolygon, Lines, SectorNumber);
-			}
-		}
-	}
-	void ProcessSector(int SectorNumber)
-	{
 		// Ignore the doors that close after 30 seconds after level start.
 		if (Level.Sectors[SectorNumber].Special == 10)
 			return;
-		Array<int> VertexBegin;
-		Array<int> VertexEnd;
-		Array<TPolygonGroup> PolygonGroups;
-		Array<TPolygon> InputPolygons;
-		Array<TPolygon> OutputPolygons;
-		// Get the LINEDEFs.
-		for (int LineIndex = 0; LineIndex < Level.Sectors[SectorNumber].Lines.Size(); LineIndex++)
+		// Check for enough vertical space.
+		TestPoint = Level.Sectors[SectorNumber].Lines[0].V1.P;
+		HeightFloor = Level.Sectors[SectorNumber].FloorPlane.ZatPoint(TestPoint);
+		HeightCeiling = Level.Sectors[SectorNumber].CeilingPlane.ZatPoint(TestPoint);
+		if ((HeightCeiling - HeightFloor) < ActorHeight)
+			return;
+		// Get the 3D sectors.
+		PlaneCount = 0;
+		for (int I = 0; I < Level.Sectors[SectorNumber].Get3DFloorCount(); I++)
 		{
-			int FrontSector = -1;
-			if (Level.Sectors[SectorNumber].Lines[LineIndex].FrontSector)
-				FrontSector = Level.Sectors[SectorNumber].Lines[LineIndex].FrontSector.Index();
-			int BackSector = -2;
-			if (Level.Sectors[SectorNumber].Lines[LineIndex].BackSector)
-				BackSector = Level.Sectors[SectorNumber].Lines[LineIndex].BackSector.Index();
+			F3DFloor FF = Level.Sectors[SectorNumber].Get3DFloor(I);
+			if (!(FF.Flags & F3DFloor.FF_EXISTS))
+			{
+				// Yes, this is actually needed!
+				// Do no remove these lines!
+				continue;
+			}
+			PlaneFloors[PlaneCount] = FF.Bottom.ZatPoint(TestPoint);
+			PlaneCeilings[PlaneCount] = FF.Top.ZatPoint(TestPoint);
+			PlaneCount++;
+		}
+		// Sort the 3D sectors.
+		for (I = 0; I < PlaneCount - 1; I++)
+			for (J = I + 1; J < PlaneCount; J++)
+				if (PlaneCeilings[I] > PlaneCeilings[J])
+				{
+					Temp = PlaneCeilings[I];
+					PlaneCeilings[I] = PlaneCeilings[J];
+					PlaneCeilings[J] = Temp;
+					Temp = PlaneFloors[I];
+					PlaneFloors[I] = PlaneFloors[J];
+					PlaneFloors[J] = Temp;
+				}
+		// Fill the polyhedron arrays.
+		PolyhedronCount = 0;
+		if (PlaneCount > 0)
+		{
+			StartFloor = HeightFloor;
+			for (I = 0; I < PlaneCount; I++)
+			{
+				if ((PlaneFloors[I] - StartFloor) > ActorHeight)
+				{
+					PolyhedronCeilings[PolyhedronCount] = PlaneFloors[I];
+					PolyhedronFloors[PolyhedronCount] = StartFloor;
+					PolyhedronCount++;
+				}
+				StartFloor = PlaneCeilings[I];
+			}
+		}
+		else
+		{
+			PolyhedronCeilings[PolyhedronCount] = HeightCeiling;
+			PolyhedronFloors[PolyhedronCount] = HeightFloor;
+			PolyhedronCount++;
+		}
+		// Fill the vertices arrays.
+		VertexCount = 0;
+		for (I = 0; I < Level.Sectors[SectorNumber].Lines.Size(); I++)
+		{
+			FrontSector = -1;
+			if (Level.Sectors[SectorNumber].Lines[I].FrontSector)
+				FrontSector = Level.Sectors[SectorNumber].Lines[I].FrontSector.Index();
+			BackSector = -2;
+			if (Level.Sectors[SectorNumber].Lines[I].BackSector)
+				BackSector = Level.Sectors[SectorNumber].Lines[I].BackSector.Index();
 			if (FrontSector == BackSector)
 				continue;
 			if (FrontSector == SectorNumber)
 			{
-				VertexBegin.Push(Level.Sectors[SectorNumber].Lines[LineIndex].V1.Index());
-				VertexEnd.Push(Level.Sectors[SectorNumber].Lines[LineIndex].V2.Index());
+				VertexBegin[VertexCount] = Level.Sectors[SectorNumber].Lines[I].V1.Index();
+				VertexEnd[VertexCount] = Level.Sectors[SectorNumber].Lines[I].V2.Index();
+				VertexCount++;
 			}
 			else
 			{
-				VertexBegin.Push(Level.Sectors[SectorNumber].Lines[LineIndex].V2.Index());
-				VertexEnd.Push(Level.Sectors[SectorNumber].Lines[LineIndex].V1.Index());
+				VertexBegin[VertexCount] = Level.Sectors[SectorNumber].Lines[I].V2.Index();
+				VertexEnd[VertexCount] = Level.Sectors[SectorNumber].Lines[I].V1.Index();
+				VertexCount++;
 			}
 		}
-		if (VertexBegin.Size() < 3)
+		if (VertexCount < 3)
 			return;
-		int FirstPolygon = NavMesh.NavMeshPolygons.Size();
-		// Split the map sectors into a list of TPolygonGroup.
-		if (GetPolygonGroups(VertexBegin, VertexEnd, PolygonGroups))
-		{
-			Array<TPolygon> InputPolygons;
-			Array<TPolygon> OutputPolygons;
-			for (int I = 0; I < PolygonGroups.Size(); I++)
-			{
-				TPolygonGroup PolygonGroup = PolygonGroups[I];
-				InputPolygons.Delete(0, InputPolygons.Size());
-				OutputPolygons.Delete(0, OutputPolygons.Size());
-				if (RemoveHoles(PolygonGroup, InputPolygons))
-					for (int I = 0; I < InputPolygons.Size(); I++)
-						ConvexPartition_HM(InputPolygons[I], OutputPolygons);
-				if (OutputPolygons.Size() > 0)
-					ProcessPolygons(OutputPolygons, SectorNumber);
-			}
-		}
+		ProcessSector(SectorNumber);
 		//Console.Printf("Sector = %i, Polygons = %i, Lines = %i", SectorNumber, NavMesh.PolygonCount, NavMesh.LineCount);
 	}
 	// Function ProcessCells builds the cell space partitioning system of the navigation mesh.
@@ -2071,10 +2164,25 @@ class TNavMeshBuilder: TCustomNavMesh
 		NavMesh.PolygonChain = TGridList.Create();
 		PreProcessMapData();
 	}
+	static TNavMeshBuilder Create()
+	{
+		TNavMeshBuilder NavMeshBuilder = New('TNavMeshBuilder');
+		NavMeshBuilder.GridLinedef = TGridList.Create();
+		NavMeshBuilder.GridNavMeshLine = TGridList.Create();
+		NavMeshBuilder.InputPolygons = TPolygons.Create();
+		NavMeshBuilder.OutputPolygons = TPolygons.Create();
+		NavMeshBuilder.SectorPolygons = TPolygons.Create();
+		NavMeshBuilder.Triangles = TPolygons.Create();
+		return NavMeshBuilder;
+	}
 	override void OnDestroy()
 	{
 		GridLinedef.Destroy();
 		GridNavMeshLine.Destroy();
+		InputPolygons.Destroy();
+		OutputPolygons.Destroy();
+		SectorPolygons.Destroy();
+		Triangles.Destroy();
 		super.OnDestroy();
 	}
 }
@@ -2101,10 +2209,10 @@ class TNavMeshBuilderWorker : Thinker
 			int StartTime = MSTime();
 			while ((CurrentSector < Level.Sectors.Size()) && ((MSTime() - StartTime) < MaxTime))
 			{
-				NavMeshBuilder.ProcessSector(CurrentSector);
+				NavMeshBuilder.ProcessMapData(CurrentSector);
 				CurrentSector++;
 			}
-			//Console.Printf("Processed sector %i", CurrentSector);
+			Console.Printf("Processed sector %i", CurrentSector);
 		}
 		else
 		{
