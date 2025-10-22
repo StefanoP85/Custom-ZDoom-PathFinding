@@ -17,5 +17,5 @@ The builder class is a giant structure with large statically allocated arrays: i
 My special thanks to Inkoalawetrust for the help received.
 
 ## Issues
-Slow: some sectors require more than 10 milliseconds, and even much more; I think to change the "Worker" thinker to perform sub-sector management.
-Still some polygons are not partitioned correctly, I don't know why.
+Slow: some sectors require more than 5 milliseconds, even on fast machines; I think to change the "Worker" thinker to perform sub-sector management.
+Need to finish the ProcessCells methods, but the "per-sector" polygon chains are not that bad in performances, so this is not urgent.
