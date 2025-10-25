@@ -1802,17 +1802,29 @@ public class TNavMesh : Object
                     int BackSector = -2;
                     if (MapDefinition.MapLinedef[MapLinedefIndex].SideBack >= 0)
                         BackSector = MapDefinition.MapSidedef[MapDefinition.MapLinedef[MapLinedefIndex].SideBack].Sector;
-                    if (FrontSector == BackSector)
-                        continue;
+                    int VertexBeginIndex;
+                    int VertexEndIndex;
                     if (FrontSector == MapSector.Index)
                     {
-                        VertexBegin.Add(MapDefinition.MapLinedef[MapLinedefIndex].V1);
-                        VertexEnd.Add(MapDefinition.MapLinedef[MapLinedefIndex].V2);
+                        VertexBeginIndex = MapDefinition.MapLinedef[MapLinedefIndex].V1;
+                        VertexEndIndex = MapDefinition.MapLinedef[MapLinedefIndex].V2;
                     }
                     else
                     {
-                        VertexBegin.Add(MapDefinition.MapLinedef[MapLinedefIndex].V2);
-                        VertexEnd.Add(MapDefinition.MapLinedef[MapLinedefIndex].V1);
+                        VertexBeginIndex = MapDefinition.MapLinedef[MapLinedefIndex].V2;
+                        VertexEndIndex = MapDefinition.MapLinedef[MapLinedefIndex].V1;
+                    }
+                    bool NotFound = true;
+                    int I = 0;
+                    while ((NotFound) && (I < VertexBegin.Count))
+                        if ((VertexBegin[I] == VertexBeginIndex) && (VertexEnd[I] == VertexEndIndex))
+                            NotFound = false;
+                        else
+                            I++;
+                    if (NotFound)
+                    {
+                        VertexBegin.Add(MapDefinition.MapLinedef[MapLinedefIndex].V1);
+                        VertexEnd.Add(MapDefinition.MapLinedef[MapLinedefIndex].V2);
                     }
                 }
             }
