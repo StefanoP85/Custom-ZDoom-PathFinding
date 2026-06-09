@@ -1,124 +1,179 @@
 """
- * Author: Pollazzon Stefano
- * Project: ZDoom Navmesh builder
- * This module contains the map entities used in ZDoom
+- Author: Pollazzon Stefano (ported)
+- Python port aligned with C# Structures
 """
+
 from enum import Enum
 
-# Class TMapEntity is the base class and common ancestor of all map entities.
+
+# --------------------------------------------------
+# Base class
+# --------------------------------------------------
+
 class TMapEntity:
-	def __init__(self, Index = 0):
-		self.Index = Index
+    def __init__(self, Index: int = -1):
+        self.Index = Index
 
-# Class TMapVertex represents a single VERTEX in the map.
+
+# --------------------------------------------------
+# Map entities
+# --------------------------------------------------
+
 class TMapVertex(TMapEntity):
-	def __init__(self, X, Y):
-		super().__init__(self)
-		self.X = X
-		self.Y = Y
+    def __init__(self, X, Y):
+        super().__init__()
+        self.X = int(X)
+        self.Y = int(Y)
 
-# Class TMapLinedef represents a single LINEDEF in the map.
+
 class TMapLinedef(TMapEntity):
-	def __init__(self, V1, V2, ID = 0, Blocking = False, TwoSided = False, SideFront = 0, SideBack = 0, Special = 0, Arg0 = 0, Arg1 = 0, Arg2 = 0, Arg3 = 0, Arg4 = 0, MonsterUse = False, RepeatableSpecial = False, Ignored = False):
-		super().__init__(self)
-		self.V1 = V1
-		self.V2 = V2
-		self.ID = ID
-		self.Blocking = Blocking
-		self.TwoSided = TwoSided
-		self.SideFront = SideFront
-		self.SideBack = SideBack
-		self.Special = Special
-		self.Arg0 = Arg0
-		self.Arg1 = Arg1
-		self.Arg2 = Arg2
-		self.Arg3 = Arg3
-		self.Arg4 = Arg4
-		self.MonsterUse = MonsterUse
-		self.RepeatableSpecial = RepeatableSpecial
-		self.Ignored = Ignored
+    def __init__(
+        self,
+        V1,
+        V2,
+        ID=0,
+        Blocking=False,
+        TwoSided=False,
+        SideFront=-1,
+        SideBack=-1,
+        Special=0,
+        Arg0=0,
+        Arg1=0,
+        Arg2=0,
+        Arg3=0,
+        Arg4=0,
+        MonsterUse=False,
+        RepeatableSpecial=False,
+        Ignored=False,
+    ):
+        super().__init__()
+        self.V1 = int(V1)
+        self.V2 = int(V2)
+        self.ID = int(ID)
+        self.Blocking = bool(Blocking)
+        self.TwoSided = bool(TwoSided)
+        self.SideFront = int(SideFront)
+        self.SideBack = int(SideBack)
+        self.Special = int(Special)
+        self.Arg0 = int(Arg0)
+        self.Arg1 = int(Arg1)
+        self.Arg2 = int(Arg2)
+        self.Arg3 = int(Arg3)
+        self.Arg4 = int(Arg4)
+        self.MonsterUse = bool(MonsterUse)
+        self.RepeatableSpecial = bool(RepeatableSpecial)
+        self.Ignored = bool(Ignored)
 
-# Class TMapSidedef represents a single SIDEDEF in the map.
+
 class TMapSidedef(TMapEntity):
-	def __init__(self, Sector):
-		super().__init__(self)
-		self.Sector = Sector
+    def __init__(self, Sector):
+        super().__init__()
+        self.Sector = int(Sector)
 
-# Class TMapSector represents a single SECTOR in the map.
+
 class TMapSector(TMapEntity):
-	def __init__(self, HeightFloor, HeightCeiling, ID = 0, Special = 0, Ignored = False):
-		super().__init__(self)
-		self.HeightFloor = HeightFloor
-		self.HeightCeiling = HeightCeiling
-		self.ID = ID
-		self.Special = Special
-		self.Ignored = Ignored
+    def __init__(self, HeightFloor, HeightCeiling, ID=0, Special=0, Ignored=False):
+        super().__init__()
+        self.HeightFloor = int(HeightFloor)
+        self.HeightCeiling = int(HeightCeiling)
+        self.ID = int(ID)
+        self.Special = int(Special)
+        self.Ignored = bool(Ignored)
 
-# Class TMapThing represents a single THING in the map.
+
 class TMapThing(TMapEntity):
-	def __init__(self, X, Y, Z = 0, ThingType = 0, ID = 0, Special = 0, Arg0 = 0, Arg1 = 0, Arg2 = 0, Arg3 = 0, Arg4 = 0):
-		super().__init__(self)
-		self.X = X
-		self.Y = Y
-		self.Z = Z
-		self.ThingType = ThingType
-		self.ID = ID
-		self.Special = Special
-		self.Arg0 = Arg0
-		self.Arg1 = Arg1
-		self.Arg2 = Arg2
-		self.Arg3 = Arg3
-		self.Arg4 = Arg4
+    def __init__(
+        self,
+        X,
+        Y,
+        Z=0,
+        ThingType=0,
+        ID=0,
+        Special=0,
+        Arg0=0,
+        Arg1=0,
+        Arg2=0,
+        Arg3=0,
+        Arg4=0,
+    ):
+        super().__init__()
+        self.X = int(X)
+        self.Y = int(Y)
+        self.Z = int(Z)
+        self.ThingType = int(ThingType)
+        self.ID = int(ID)
+        self.Special = int(Special)
+        self.Arg0 = int(Arg0)
+        self.Arg1 = int(Arg1)
+        self.Arg2 = int(Arg2)
+        self.Arg3 = int(Arg3)
+        self.Arg4 = int(Arg4)
 
-# Class TMapNamespace represents the possible namespaces of a map.
-# The action specials of LINEDEF and SECTOR depends on the map's namespace.
-# In binary maps we have Doom and Hexen namespaces, depending if the map has a BEHAVIOR lump; in text maps we have all values stored in the text stream.
+
+# --------------------------------------------------
+# Namespace enum
+# --------------------------------------------------
+
 class TMapNamespace(Enum):
-	MapNamespaceDoom = 0
-	MapNamespaceHexen = 1
-	MapNamespaceZDoom = 2
+    MapNamespaceDoom = 0
+    MapNamespaceHexen = 1
+    MapNamespaceZDoom = 2
+
+
+# --------------------------------------------------
+# Map definition container
+# --------------------------------------------------
 
 class TMapDefinition:
-	def __init__(self, MapName):
-		self.MapName = MapName
-		self.MapNamespace = None
-		self.MapVertex = []
-		self.MapLinedef = []
-		self.MapSidedef = []
-		self.MapSector = []
-		self.MapThing = []
+    def __init__(self, MapName):
+        self.MapName = MapName
+        self.MapNamespace = TMapNamespace.MapNamespaceDoom
 
-	def MapNamespaceText(self):
-		if self.MapNamespace == TMapNamespace.MapNamespaceDoom:
-			return "Doom"
-		elif self.MapNamespace == TMapNamespace.MapNamespaceHexen:
-			return "Hexen"
-		elif self.MapNamespace == TMapNamespace.MapNamespaceZDoom:
-			return "ZDoom"
-		else:
-			return ""
+        self.MapVertex = []
+        self.MapLinedef = []
+        self.MapSidedef = []
+        self.MapSector = []
+        self.MapThing = []
 
-	def AddMapVertex(self, MapVertex):
-		if not MapVertex is None:
-			MapVertex.Index = len(self.MapVertex)
-			self.MapVertex.append(MapVertex)
+    # ---------- helpers ----------
 
-	def AddMapLinedef(self, MapLinedef):
-		if not MapLinedef is None:
-			MapLinedef.Index = len(self.MapLinedef)
-			self.MapLinedef.append(MapLinedef)
-			
-	def AddMapSidedef(self, MapSidedef):
-		if not MapSidedef is None:
-			MapSidedef.Index = len(self.MapSidedef)
-			self.MapSidedef.append(MapSidedef)
+    def MapNamespaceText(self):
+        if self.MapNamespace == TMapNamespace.MapNamespaceDoom:
+            return "Doom"
+        if self.MapNamespace == TMapNamespace.MapNamespaceHexen:
+            return "Hexen"
+        if self.MapNamespace == TMapNamespace.MapNamespaceZDoom:
+            return "ZDoom"
+        return ""
 
-	def AddMapSector(self, MapSector):
-		if not MapSector is None:
-			MapSector.Index = len(self.MapSector)
-			self.MapSector.append(MapSector)
+    # ---------- add methods ----------
 
-	def AddMapThing(self, MapThing):
-		if not MapThing is None:
-			MapThing.Index = len(self.MapThing)
-			self.MapThing.append(MapThing)
+    def AddMapVertex(self, item):
+        if item is None:
+            return
+        item.Index = len(self.MapVertex)
+        self.MapVertex.append(item)
+
+    def AddMapLinedef(self, item):
+        if item is None:
+            return
+        item.Index = len(self.MapLinedef)
+        self.MapLinedef.append(item)
+
+    def AddMapSidedef(self, item):
+        if item is None:
+            return
+        item.Index = len(self.MapSidedef)
+        self.MapSidedef.append(item)
+
+    def AddMapSector(self, item):
+        if item is None:
+            return
+        item.Index = len(self.MapSector)
+        self.MapSector.append(item)
+
+    def AddMapThing(self, item):
+        if item is None:
+            return
+        item.Index = len(self.MapThing)
+        self.MapThing.append(item)
